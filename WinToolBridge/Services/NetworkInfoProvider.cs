@@ -63,8 +63,7 @@ public static class NetworkInfoProvider
             desc.Contains("Tailscale", StringComparison.OrdinalIgnoreCase) ||
             desc.Contains("ZeroTier", StringComparison.OrdinalIgnoreCase) ||
             desc.Contains("VMware", StringComparison.OrdinalIgnoreCase) ||
-            desc.Contains("WireGuard", StringComparison.OrdinalIgnoreCase) ||
-            ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel)
+            desc.Contains("WireGuard", StringComparison.OrdinalIgnoreCase))
             return "Virtual";
 
         if (ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211) return "WiFi";
@@ -81,7 +80,9 @@ public static class NetworkInfoProvider
         object? primaryWanObj = null;
 
         foreach (var ni in allAdapters) {
-            if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.OperationalStatus != OperationalStatus.Up)
+            if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+                ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel ||
+                ni.OperationalStatus != OperationalStatus.Up)
                 continue;
 
             IPInterfaceProperties ipProps;
@@ -104,7 +105,13 @@ public static class NetworkInfoProvider
             var dnsServers = ipProps.DnsAddresses.Select(d => d.ToString()).ToList();
 
             string mac = "";
-            try { mac = string.Join(":", ni.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))); } catch { }
+            try {
+                var macBytes = ni.GetPhysicalAddress().GetAddressBytes();
+                if (macBytes.Length == 6) {
+                    mac = string.Join(":", macBytes.Select(b => b.ToString("X2")));
+                }
+            }
+            catch { }
 
             var adapterInfo = new {
                 index = ifIndex,
@@ -132,7 +139,7 @@ public static class NetworkInfoProvider
 
     #endregion
 
-    #region 2. Wi-Fi 詳細射頻參數 (NET:GET_WIFI_DETAILS) - .NET 8 WinRT API (零延遲版)
+    #region 2. Wi-Fi 詳細射頻參數 (NET:GET_WIFI_DETAILS)
 
     private static int FrequencyToChannel(int freqKHz)
     {
@@ -194,8 +201,7 @@ public static class NetworkInfoProvider
                     int rssi = (int)targetNetwork.NetworkRssiInDecibelMilliwatts;
                     int calculatedQuality = Math.Clamp((rssi + 100) * 2, 0, 100);
 
-                    return new
-                    {
+                    return new {
                         interfaceName = adapter.NetworkAdapter?.NetworkAdapterId.ToString() ?? "Wi-Fi",
                         ssid = targetNetwork.Ssid,
                         bssid = targetNetwork.Bssid,

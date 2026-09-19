@@ -19,8 +19,14 @@ public class ProtocolMessage
 
 public class LocalBridgeServer : IDisposable
 {
-    public const string SERVER_VERSION = "1.0.0";
+    public const string SERVER_VERSION = "1.1.0";
     public const int DEFAULT_PORT = 58240;
+
+    private static readonly HashSet<string> AllowedOrigins = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "http://localhost:3000",
+        "https://crjim.com"
+    };
 
     public int Port { get; }
     private readonly HttpListener _listener;
@@ -50,7 +56,17 @@ public class LocalBridgeServer : IDisposable
             try {
                 var context = await _listener.GetContextAsync();
 
-                context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+                var rawOrigin = context.Request.Headers["Origin"];
+                var origin = rawOrigin?.TrimEnd('/');
+
+                if (string.IsNullOrEmpty(origin) || !AllowedOrigins.Contains(origin)) {
+                    LogWarn(string.Format(Strings.SecurityOriginBlocked, rawOrigin ?? Strings.UnknownOrigin));
+                    context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
+                    context.Response.Close();
+                    continue;
+                }
+
+                context.Response.Headers.Add("Access-Control-Allow-Origin", rawOrigin);
                 context.Response.Headers.Add("Access-Control-Allow-Private-Network", "true");
                 context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
                 context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");

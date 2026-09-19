@@ -184,4 +184,10 @@
   <data name="StartOnBoot" xml:space="preserve">
     <value>開機自啟動</value>
   </data>
+  <data name="SecurityOriginBlocked" xml:space="preserve">
+    <value>[安全性攔截] 拒絕未經授權的連線來源: {0}</value>
+  </data>
+  <data name="UnknownOrigin" xml:space="preserve">
+    <value>未知 (無 Origin)</value>
+  </data>
 </root>

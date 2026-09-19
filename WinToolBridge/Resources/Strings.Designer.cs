@@ -196,6 +196,15 @@ namespace WinToolBridge.Resources {
         }
         
         /// <summary>
+        ///   查詢類似 [Security] Rejected unauthorized connection origin: {0} 的當地語系化字串。
+        /// </summary>
+        internal static string SecurityOriginBlocked {
+            get {
+                return ResourceManager.GetString("SecurityOriginBlocked", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   查詢類似 Server started, listening on 127.0.0.1:{0} (Protocol: v{1}) 的當地語系化字串。
         /// </summary>
         internal static string ServerListening {
@@ -247,6 +256,15 @@ namespace WinToolBridge.Resources {
         internal static string TrayTip {
             get {
                 return ResourceManager.GetString("TrayTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Unknown (No Origin) 的當地語系化字串。
+        /// </summary>
+        internal static string UnknownOrigin {
+            get {
+                return ResourceManager.GetString("UnknownOrigin", resourceCulture);
             }
         }
         

@@ -16,6 +16,7 @@ public class CommandRegistry
         Register(new NetWifiDetailsHandler());
         Register(new NetPortDetailsHandler());
         Register(new NetDnsBenchmarkHandler());
+        Register(new NetOpenAdapterDetailsHandler());
     }
 
     public void Register(ICommandHandler handler)

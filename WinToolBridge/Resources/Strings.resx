@@ -184,4 +184,10 @@
   <data name="StartOnBoot" xml:space="preserve">
     <value>Start with Windows</value>
   </data>
+  <data name="SecurityOriginBlocked" xml:space="preserve">
+    <value>[Security] Rejected unauthorized connection origin: {0}</value>
+  </data>
+  <data name="UnknownOrigin" xml:space="preserve">
+    <value>Unknown (No Origin)</value>
+  </data>
 </root>

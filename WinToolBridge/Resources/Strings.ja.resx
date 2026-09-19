@@ -184,4 +184,10 @@
   <data name="StartOnBoot" xml:space="preserve">
     <value>Windows 起動時に実行</value>
   </data>
+  <data name="SecurityOriginBlocked" xml:space="preserve">
+    <value>[セキュリティ遮断] 未承認の接続元を拒否しました: {0}</value>
+  </data>
+  <data name="UnknownOrigin" xml:space="preserve">
+    <value>不明 (Origin なし)</value>
+  </data>
 </root>

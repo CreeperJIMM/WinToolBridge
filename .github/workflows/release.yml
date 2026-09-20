@@ -70,7 +70,8 @@ jobs:
           if (-not $prevTag) {$prevTag = "initial" }
           $version =$currentTag.TrimStart('v')
 
-          $changelog = Get-Content -Path ./CHANGELOG.md -Raw$regex = "(?s)## \[$version\].*?(?=(## \[|$))"
+          $changelog = Get-Content -Path ./CHANGELOG.md -Raw
+          $regex = "(?s)## \[$version\].*?(?=(## \[|$))"
           if ($changelog -match$regex) {
               $matchedContent =$matches[0].Trim()
               $cleanContent = ($matchedContent -split "`r?`n", 2)[1].Trim()
@@ -78,7 +79,8 @@ jobs:
               $cleanContent = "### What's New`n`n- Maintenance update and performance improvements."
           }
 
-          $template = Get-Content -Path ./.github/release_template.md -Raw$finalNotes = $template.Replace("{{CHANGELOG_CONTENT}}", $cleanContent) `
+          $template = Get-Content -Path ./.github/release_template.md -Raw
+          $finalNotes = $template.Replace("{{CHANGELOG_CONTENT}}", $cleanContent) `
                                  .Replace("{{CURRENT_TAG}}", $currentTag) `
                                  .Replace("{{PREV_TAG}}", $prevTag)
 

@@ -49,7 +49,7 @@ jobs:
 
   release:
     needs: build
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -63,28 +63,49 @@ jobs:
           merge-multiple: true
 
       - name: Generate Release Notes
-        shell: pwsh
+        shell: bash
         run: |
-          $currentTag = "${{ github.ref_name }}"
-          $prevTag = git describe --tags --abbrev=0 "${currentTag}^" 2>$null
-          if (-not $prevTag) {$prevTag = "initial" }
-          $version =$currentTag.TrimStart('v')
+          python3 - << 'EOF'
+          import os, re, subprocess
 
-          $changelog = Get-Content -Path ./CHANGELOG.md -Raw
-          $regex = "(?s)## \[$version\].*?(?=(## \[|$))"
-          if ($changelog -match$regex) {
-              $matchedContent =$matches[0].Trim()
-              $cleanContent = ($matchedContent -split "`r?`n", 2)[1].Trim()
-          } else {
-              $cleanContent = "### What's New`n`n- Maintenance update and performance improvements."
-          }
+          tag = os.environ.get("GITHUB_REF_NAME", "")
+          version = tag.lstrip("v")
 
-          $template = Get-Content -Path ./.github/release_template.md -Raw
-          $finalNotes = $template.Replace("{{CHANGELOG_CONTENT}}", $cleanContent) `
-                                 .Replace("{{CURRENT_TAG}}", $currentTag) `
-                                 .Replace("{{PREV_TAG}}", $prevTag)
+          try:
+              prev_tag = subprocess.check_output(
+                  ["git", "describe", "--tags", "--abbrev=0", f"{tag}^"],
+                  stderr=subprocess.DEVNULL,
+                  text=True
+              ).strip()
+          except Exception:
+              prev_tag = "initial"
 
-          Set-Content -Path ./RELEASE_NOTES.md -Value $finalNotes -Encoding utf8
+          changelog_content = "### What's New\n\n- Maintenance update and performance improvements."
+          if os.path.exists("CHANGELOG.md"):
+              with open("CHANGELOG.md", "r", encoding="utf-8") as f:
+                  content = f.read()
+              pattern = rf"(?s)## \[{re.escape(version)}\].*?(?=(## \[|$))"
+              match = re.search(pattern, content)
+              if match:
+                  lines = match.group(0).strip().splitlines()
+                  if len(lines) > 1:
+                      changelog_content = "\n".join(lines[1:]).strip()
+
+          template_path = ".github/release_template.md"
+          if os.path.exists(template_path):
+              with open(template_path, "r", encoding="utf-8") as f:
+                  template = f.read()
+              final_notes = (
+                  template.replace("{{CHANGELOG_CONTENT}}", changelog_content)
+                          .replace("{{CURRENT_TAG}}", tag)
+                          .replace("{{PREV_TAG}}", prev_tag)
+              )
+          else:
+              final_notes = changelog_content
+
+          with open("RELEASE_NOTES.md", "w", encoding="utf-8") as f:
+              f.write(final_notes)
+          EOF
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

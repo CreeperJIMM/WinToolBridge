@@ -1,3 +1,5 @@
+## [1.1.0]
+
 ### What's New in v1.1.0
 
 - **Critical Security Fix**:

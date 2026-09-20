@@ -15,11 +15,9 @@ jobs:
       matrix:
         include:
           - rid: win-x64
-            suffix: x64
-          - rid: win-x86
-            suffix: x86
+            output_name: WinToolBridge.exe
           - rid: win-arm64
-            suffix: arm64
+            output_name: WinToolBridge_arm64.exe
 
     steps:
       - name: Checkout repository
@@ -41,20 +39,22 @@ jobs:
         shell: pwsh
         run: |
           $exeFile = Get-ChildItem -Path ./publish -Filter *.exe | Select-Object -First 1
-          Move-Item -Path $exeFile.FullName -Destination "./WinToolBridge_${{ matrix.suffix }}.exe"
+          Move-Item -Path $exeFile.FullName -Destination "./${{ matrix.output_name }}"
 
       - name: Temporarily upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WinToolBridge_${{ matrix.suffix }}
-          path: ./WinToolBridge_${{ matrix.suffix }}.exe
+          name: ${{ matrix.output_name }}
+          path: ./${{ matrix.output_name }}
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download all built artifacts
         uses: actions/download-artifact@v4
@@ -62,10 +62,34 @@ jobs:
           path: ./release-artifacts
           merge-multiple: true
 
+      - name: Generate Release Notes
+        shell: pwsh
+        run: |
+          $currentTag = "${{ github.ref_name }}"
+          $prevTag = git describe --tags --abbrev=0 "${currentTag}^" 2>$null
+          if (-not $prevTag) {$prevTag = "initial" }
+          $version =$currentTag.TrimStart('v')
+
+          $changelog = Get-Content -Path ./CHANGELOG.md -Raw$regex = "(?s)## \[$version\].*?(?=(## \[|$))"
+          if ($changelog -match$regex) {
+              $matchedContent =$matches[0].Trim()
+              $cleanContent = ($matchedContent -split "`r?`n", 2)[1].Trim()
+          } else {
+              $cleanContent = "### What's New`n`n- Maintenance update and performance improvements."
+          }
+
+          $template = Get-Content -Path ./.github/release_template.md -Raw$finalNotes = $template.Replace("{{CHANGELOG_CONTENT}}", $cleanContent) `
+                                 .Replace("{{CURRENT_TAG}}", $currentTag) `
+                                 .Replace("{{PREV_TAG}}", $prevTag)
+
+          Set-Content -Path ./RELEASE_NOTES.md -Value $finalNotes -Encoding utf8
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: ./release-artifacts/*.exe
-          generate_release_notes: true
+          body_path: ./RELEASE_NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -34,6 +34,7 @@ static class Program
         SetupTrayIcon(isSilent);
         Application.ApplicationExit += OnApplicationExit;
         Application.Run();
+        Environment.Exit(0);
     }
 
     private static void SetupTrayIcon(bool isSilent)

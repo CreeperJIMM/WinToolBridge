@@ -1,0 +1,71 @@
+name: Build and Release WinToolBridge
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            suffix: x64
+          - rid: win-x86
+            suffix: x86
+          - rid: win-arm64
+            suffix: arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build and Publish (${{ matrix.rid }})
+        run: |
+          dotnet publish -c Release -r ${{ matrix.rid }} -o ./publish
+
+      - name: Rename EXE
+        shell: pwsh
+        run: |
+          $exeFile = Get-ChildItem -Path ./publish -Filter *.exe | Select-Object -First 1
+          Move-Item -Path $exeFile.FullName -Destination "./WinToolBridge_${{ matrix.suffix }}.exe"
+
+      - name: Temporarily upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WinToolBridge_${{ matrix.suffix }}
+          path: ./WinToolBridge_${{ matrix.suffix }}.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./release-artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./release-artifacts/*.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

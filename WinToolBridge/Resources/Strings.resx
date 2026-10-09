@@ -173,10 +173,10 @@
     <value>[Connection Error] {0}</value>
   </data>
   <data name="HandshakeReceived" xml:space="preserve">
-    <value>[Handshake] From {0} {1} (Client protocol: v{2} ~ v{3})</value>
+    <value>[Handshake] From {0} {1} (Client: v{3}, Minimum backend: v{2})</value>
   </data>
   <data name="VersionIncompatible" xml:space="preserve">
-    <value>[Incompatible Version] Local: v{0}, Requested: v{1} ~ v{2}</value>
+    <value>[Incompatible Version] Local: v{0}, Minimum required: v{1} (Client: v{2})</value>
   </data>
   <data name="RetryingSend" xml:space="preserve">
     <value>[Retry] DAT [{0}] ACK timeout, retransmitting (Attempt #{1})...</value>
@@ -189,5 +189,38 @@
   </data>
   <data name="UnknownOrigin" xml:space="preserve">
     <value>Unknown (No Origin)</value>
+  </data>
+	<data name="UpdateMenu" xml:space="preserve">
+	  <value>Update</value>
+  </data>
+  <data name="AutomaticUpdateCheck" xml:space="preserve">
+	  <value>Automatically check for updates</value>
+  </data>
+  <data name="ManualUpdateCheck" xml:space="preserve">
+	  <value>Check for updates manually</value>
+  </data>
+  <data name="ViewGitHub" xml:space="preserve">
+	  <value>View GitHub</value>
+  </data>
+  <data name="UpdateAvailableTitle" xml:space="preserve">
+	  <value>A new version is available!</value>
+  </data>
+  <data name="UpdateAvailableMessage" xml:space="preserve">
+	  <value>A new version has been detected. Would you like to open the latest release page?</value>
+  </data>
+  <data name="UpdateUpToDate" xml:space="preserve">
+	  <value>You are up to date (v{0}).</value>
+  </data>
+  <data name="NoPublishedRelease" xml:space="preserve">
+	  <value>No stable release is currently available.</value>
+  </data>
+  <data name="UpdateCheckFailed" xml:space="preserve">
+	  <value>Unable to check for updates. Please check your network connection and try again later.</value>
+  </data>
+  <data name="UpdateOpenPageFailed" xml:space="preserve">
+	  <value>Unable to open the page. Please check your default browser settings.</value>
+  </data>
+  <data name="UpdateSettingsFailed" xml:space="preserve">
+	  <value>Unable to save the automatic update check preference.</value>
   </data>
 </root>

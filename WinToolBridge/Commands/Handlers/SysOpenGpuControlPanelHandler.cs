@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Windows.Management.Deployment;
+using WinToolBridge.Services;
 
 namespace WinToolBridge.Commands.Handlers;
 
@@ -26,7 +27,7 @@ public class SysOpenGpuControlPanelHandler : ICommandHandler
         // Both executable paths and package families are fixed by the backend.
         var executable = FindDesktopExecutable(vendor);
         if (executable != null) {
-            StartDesktopApp(executable, token);
+            await StartDesktopAppAsync(executable, token);
             return new { vendor, opened = true };
         }
 
@@ -38,7 +39,7 @@ public class SysOpenGpuControlPanelHandler : ICommandHandler
         if (vendor == "nvidia") {
             executable = FindExecutable([@"NVIDIA Corporation\NVIDIA App\CEF\NVIDIA App.exe"]);
             if (executable != null) {
-                StartDesktopApp(executable, token);
+                await StartDesktopAppAsync(executable, token);
                 return new { vendor, opened = true };
             }
         }
@@ -66,15 +67,12 @@ public class SysOpenGpuControlPanelHandler : ICommandHandler
         return null;
     }
 
-    private static void StartDesktopApp(string executable, CancellationToken token)
-    {
-        token.ThrowIfCancellationRequested();
-        using var process = Process.Start(new ProcessStartInfo {
+    private static Task StartDesktopAppAsync(string executable, CancellationToken token) =>
+        ShortcutWindowHelper.StartAsync(new ProcessStartInfo {
             FileName = executable,
             WorkingDirectory = Path.GetDirectoryName(executable)!,
             UseShellExecute = false
-        }) ?? throw new InvalidOperationException("Unable to open GPU control app.");
-    }
+        }, token);
 
     private static async Task<bool> TryLaunchPackageAsync(string vendor, CancellationToken token)
     {
@@ -93,7 +91,7 @@ public class SysOpenGpuControlPanelHandler : ICommandHandler
                     var entries = await package.GetAppListEntriesAsync().AsTask(token);
                     foreach (var entry in entries) {
                         token.ThrowIfCancellationRequested();
-                        if (await entry.LaunchAsync().AsTask(token)) return true;
+                        if (await ShortcutWindowHelper.LaunchPackageAsync(entry, family, token)) return true;
                     }
                 }
             }

@@ -43,7 +43,21 @@ public static class ConsoleHelper
     private const uint MF_BYCOMMAND = 0x00000000;
 
     private static bool _isAllocated = false;
+    private static readonly object _logLock = new();
+    private static readonly Queue<string> _pendingLogs = new();
     private static System.Windows.Forms.Timer? _minimizeCheckTimer;
+
+    public static void WriteLog(string message)
+    {
+        lock (_logLock) {
+            if (!_isAllocated) {
+                if (_pendingLogs.Count >= 100) _pendingLogs.Dequeue();
+                _pendingLogs.Enqueue(message);
+                return;
+            }
+            Console.WriteLine(message);
+        }
+    }
 
     /// <summary>
     /// 即時查詢控制台是否正顯示在螢幕上且未被最小化
@@ -104,7 +118,10 @@ public static class ConsoleHelper
             Console.ResetColor();
 
             StartMinimizeWatcher();
-            _isAllocated = true;
+            lock (_logLock) {
+                _isAllocated = true;
+                while (_pendingLogs.TryDequeue(out var message)) Console.WriteLine(message);
+            }
         }
 
         IntPtr hWnd = GetConsoleWindow();

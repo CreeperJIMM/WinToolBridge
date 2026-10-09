@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using WinToolBridge.Services;
 
 namespace WinToolBridge.Commands.Handlers;
 
@@ -8,7 +9,7 @@ public class SysOpenDriveHandler : ICommandHandler
 {
     public string Action => "SYS:OPEN_DRIVE";
 
-    public Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
+    public async Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
 
@@ -18,7 +19,6 @@ public class SysOpenDriveHandler : ICommandHandler
             throw new ArgumentException("Invalid drive name.");
         }
 
-        // Match an enumerated root exactly; never pass arbitrary paths or Explorer switches.
         var name = nameValue.GetString();
         var drive = DriveInfo.GetDrives().FirstOrDefault(candidate =>
             string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -35,9 +35,8 @@ public class SysOpenDriveHandler : ICommandHandler
         };
         startInfo.ArgumentList.Add(drive.Name);
         token.ThrowIfCancellationRequested();
-        using var process = Process.Start(startInfo) ??
-            throw new InvalidOperationException("Unable to open File Explorer.");
+        await ShortcutWindowHelper.StartAsync(startInfo, token, ["explorer"]);
 
-        return Task.FromResult<object?>(new { opened = drive.Name });
+        return new { opened = drive.Name };
     }
 }

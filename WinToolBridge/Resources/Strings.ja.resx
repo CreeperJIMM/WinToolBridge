@@ -173,10 +173,10 @@
     <value>[接続エラー] {0}</value>
   </data>
   <data name="HandshakeReceived" xml:space="preserve">
-    <value>[ハンドシェイク要求] {0} {1} より (クライアントプロトコル範囲: v{2} ~ v{3})</value>
+    <value>[ハンドシェイク要求] {0} {1} より (クライアント: v{3}, バックエンド最低バージョン: v{2})</value>
   </data>
   <data name="VersionIncompatible" xml:space="preserve">
-    <value>[バージョン非互換] ローカル: v{0}, 要求バージョン: v{1} ~ v{2}</value>
+    <value>[バージョン非互換] ローカル: v{0}, 最低要件: v{1} (クライアント: v{2})</value>
   </data>
   <data name="RetryingSend" xml:space="preserve">
     <value>[再試行] DAT [{0}] ACKを受信できません。再送信中 (試行 #{1})...</value>
@@ -189,5 +189,38 @@
   </data>
   <data name="UnknownOrigin" xml:space="preserve">
     <value>不明 (Origin なし)</value>
+  </data>
+	<data name="UpdateMenu" xml:space="preserve">
+	  <value>更新</value>
+  </data>
+  <data name="AutomaticUpdateCheck" xml:space="preserve">
+	  <value>更新を自動確認</value>
+  </data>
+  <data name="ManualUpdateCheck" xml:space="preserve">
+	  <value>更新を手動確認</value>
+  </data>
+  <data name="ViewGitHub" xml:space="preserve">
+	  <value>GitHub を開く</value>
+  </data>
+  <data name="UpdateAvailableTitle" xml:space="preserve">
+	  <value>新しいバージョンがあります！</value>
+  </data>
+  <data name="UpdateAvailableMessage" xml:space="preserve">
+	  <value>新しいバージョンが見つかりました。最新のリリースページを開きますか？</value>
+  </data>
+  <data name="UpdateUpToDate" xml:space="preserve">
+	  <value>現在のバージョンは最新です（v{0}）。</value>
+  </data>
+  <data name="NoPublishedRelease" xml:space="preserve">
+	  <value>現在、正式なリリースはありません。</value>
+  </data>
+  <data name="UpdateCheckFailed" xml:space="preserve">
+	  <value>更新を確認できません。ネットワーク接続を確認して、後でもう一度お試しください。</value>
+  </data>
+  <data name="UpdateOpenPageFailed" xml:space="preserve">
+	  <value>ページを開けません。既定のブラウザーの設定を確認してください。</value>
+  </data>
+  <data name="UpdateSettingsFailed" xml:space="preserve">
+	  <value>更新の自動確認設定を保存できません。</value>
   </data>
 </root>

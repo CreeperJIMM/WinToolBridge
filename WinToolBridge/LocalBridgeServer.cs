@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Net;
 using System.Net.WebSockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -19,7 +20,10 @@ public class ProtocolMessage
 
 public class LocalBridgeServer : IDisposable
 {
-    public const string SERVER_VERSION = "1.1.0";
+    public static readonly string SERVER_VERSION = typeof(LocalBridgeServer).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
+        ?? typeof(LocalBridgeServer).Assembly.GetName().Version?.ToString(3)
+        ?? "0.0.0";
     public const int DEFAULT_PORT = 58240;
     public const int MAX_CONNECTIONS = 8;
 
@@ -318,20 +322,19 @@ public class LocalBridgeServer : IDisposable
 
             var serverVer = ParseVersionSafe(SERVER_VERSION);
             var minVer = ParseVersionSafe(clientMinStr);
-            var maxVer = ParseVersionSafe(clientVerStr);
 
-            if (serverVer < minVer || serverVer > maxVer) {
+            if (serverVer < minVer) {
                 LogWarn(string.Format(Strings.VersionIncompatible, SERVER_VERSION, clientMinStr, clientVerStr));
                 await SendLoggedRawAsync(socket, new {
                     type = "RST",
                     payload = new {
-                        error = "Version out of range",
+                        error = "Server version below minimum",
                         clientVersion = clientVerStr,
                         minVersion = clientMinStr,
                         serverVersion = SERVER_VERSION
                     }
                 }, token);
-                await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Version out of range", token);
+                await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Server version below minimum", token);
                 return;
             }
 
@@ -568,8 +571,6 @@ public class LocalBridgeServer : IDisposable
             Stop();
             _isDisposed = true;
             _cts.Dispose();
-            // Outstanding session cleanup may still use the managed semaphore.
-            // No AvailableWaitHandle is used; let GC reclaim it after those tasks exit.
         }
         GC.SuppressFinalize(this);
     }

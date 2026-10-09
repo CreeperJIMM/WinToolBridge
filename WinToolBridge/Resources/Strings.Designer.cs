@@ -19,7 +19,7 @@ namespace WinToolBridge.Resources {
     // 類別透過 ResGen 或 Visual Studio 這類工具。
     // 若要加入或移除成員，請編輯您的 .ResX 檔，然後重新執行 ResGen
     // (利用 /str 選項)，或重建您的 VS 專案。
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "17.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "18.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     internal class Strings {
@@ -75,6 +75,15 @@ namespace WinToolBridge.Resources {
         internal static string AppTitle {
             get {
                 return ResourceManager.GetString("AppTitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Automatically check for updates 的當地語系化字串。
+        /// </summary>
+        internal static string AutomaticUpdateCheck {
+            get {
+                return ResourceManager.GetString("AutomaticUpdateCheck", resourceCulture);
             }
         }
         
@@ -160,11 +169,29 @@ namespace WinToolBridge.Resources {
         }
         
         /// <summary>
-        ///   查詢類似 [Handshake] From {0} {1} (Client protocol: v{2} ~ v{3}) 的當地語系化字串。
+        ///   查詢類似 [Handshake] From {0} {1} (Client: v{3}, Minimum backend: v{2}) 的當地語系化字串。
         /// </summary>
         internal static string HandshakeReceived {
             get {
                 return ResourceManager.GetString("HandshakeReceived", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Check for updates manually 的當地語系化字串。
+        /// </summary>
+        internal static string ManualUpdateCheck {
+            get {
+                return ResourceManager.GetString("ManualUpdateCheck", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 No stable release is currently available. 的當地語系化字串。
+        /// </summary>
+        internal static string NoPublishedRelease {
+            get {
+                return ResourceManager.GetString("NoPublishedRelease", resourceCulture);
             }
         }
         
@@ -269,11 +296,83 @@ namespace WinToolBridge.Resources {
         }
         
         /// <summary>
-        ///   查詢類似 [Incompatible Version] Local: v{0}, Requested: v{1} ~ v{2} 的當地語系化字串。
+        ///   查詢類似 A new version has been detected. Would you like to open the latest release page? 的當地語系化字串。
+        /// </summary>
+        internal static string UpdateAvailableMessage {
+            get {
+                return ResourceManager.GetString("UpdateAvailableMessage", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 A new version is available! 的當地語系化字串。
+        /// </summary>
+        internal static string UpdateAvailableTitle {
+            get {
+                return ResourceManager.GetString("UpdateAvailableTitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Unable to check for updates. Please check your network connection and try again later. 的當地語系化字串。
+        /// </summary>
+        internal static string UpdateCheckFailed {
+            get {
+                return ResourceManager.GetString("UpdateCheckFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Update 的當地語系化字串。
+        /// </summary>
+        internal static string UpdateMenu {
+            get {
+                return ResourceManager.GetString("UpdateMenu", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Unable to open the page. Please check your default browser settings. 的當地語系化字串。
+        /// </summary>
+        internal static string UpdateOpenPageFailed {
+            get {
+                return ResourceManager.GetString("UpdateOpenPageFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Unable to save the automatic update check preference. 的當地語系化字串。
+        /// </summary>
+        internal static string UpdateSettingsFailed {
+            get {
+                return ResourceManager.GetString("UpdateSettingsFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 You are up to date (v{0}). 的當地語系化字串。
+        /// </summary>
+        internal static string UpdateUpToDate {
+            get {
+                return ResourceManager.GetString("UpdateUpToDate", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 [Incompatible Version] Local: v{0}, Minimum required: v{1} (Client: v{2}) 的當地語系化字串。
         /// </summary>
         internal static string VersionIncompatible {
             get {
                 return ResourceManager.GetString("VersionIncompatible", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 View GitHub 的當地語系化字串。
+        /// </summary>
+        internal static string ViewGitHub {
+            get {
+                return ResourceManager.GetString("ViewGitHub", resourceCulture);
             }
         }
     }

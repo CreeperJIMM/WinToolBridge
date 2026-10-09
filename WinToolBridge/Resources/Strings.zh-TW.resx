@@ -173,10 +173,10 @@
     <value>[連線異常] {0}</value>
   </data>
   <data name="HandshakeReceived" xml:space="preserve">
-    <value>[交握請求] 來自 {0} {1} (前端協定範圍: v{2} ~ v{3})</value>
+    <value>[交握請求] 來自 {0} {1} (前端版本: v{3}, 最低本機版本: v{2})</value>
   </data>
   <data name="VersionIncompatible" xml:space="preserve">
-    <value>[版本不相容] 本機: v{0}, 前端要求: v{1} ~ v{2}</value>
+    <value>[版本不相容] 本機: v{0}, 最低需求: v{1} (前端: v{2})</value>
   </data>
   <data name="RetryingSend" xml:space="preserve">
     <value>[重發] DAT [{0}] 未獲 ACK，重傳中 (第 {1} 次)...</value>
@@ -189,5 +189,38 @@
   </data>
   <data name="UnknownOrigin" xml:space="preserve">
     <value>未知 (無 Origin)</value>
+  </data>
+  <data name="UpdateMenu" xml:space="preserve">
+	  <value>更新</value>
+  </data>
+  <data name="AutomaticUpdateCheck" xml:space="preserve">
+	  <value>自動檢查更新</value>
+  </data>
+  <data name="ManualUpdateCheck" xml:space="preserve">
+	  <value>手動檢查更新</value>
+  </data>
+  <data name="ViewGitHub" xml:space="preserve">
+	  <value>查看 GitHub</value>
+  </data>
+  <data name="UpdateAvailableTitle" xml:space="preserve">
+	  <value>已有新版本！</value>
+  </data>
+  <data name="UpdateAvailableMessage" xml:space="preserve">
+	  <value>已檢查到新版本，是否打開最新發布頁面？</value>
+  </data>
+  <data name="UpdateUpToDate" xml:space="preserve">
+	  <value>目前已是最新版本（v{0}）。</value>
+  </data>
+  <data name="NoPublishedRelease" xml:space="preserve">
+	  <value>目前尚無正式發布版本。</value>
+  </data>
+  <data name="UpdateCheckFailed" xml:space="preserve">
+	  <value>無法檢查更新，請確認網路連線後稍後再試。</value>
+  </data>
+  <data name="UpdateOpenPageFailed" xml:space="preserve">
+	  <value>無法開啟頁面，請確認預設瀏覽器設定。</value>
+  </data>
+  <data name="UpdateSettingsFailed" xml:space="preserve">
+	  <value>無法儲存自動檢查更新的設定。</value>
   </data>
 </root>

@@ -1,28 +1,12 @@
-﻿using System.Diagnostics;
-using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Text.Json;
+using WinToolBridge.Services;
 
 namespace WinToolBridge.Commands.Handlers;
 
 public class SysOpenShortcutHandler : ICommandHandler
 {
     public string Action => "SYS:OPEN_SHORTCUT";
-
-    #region Win32 API 視窗置頂輔助
-
-    [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    [DllImport("user32.dll")]
-    private static extern bool AllowSetForegroundWindow(int dwProcessId);
-
-    private const int SW_RESTORE = 9;
-    private const int ASFW_ANY = -1;
-
-    #endregion
 
     private static readonly Dictionary<string, (string FileName, string Arguments)> Shortcuts = new() {
         // 裝置印表機
@@ -45,7 +29,7 @@ public class SysOpenShortcutHandler : ICommandHandler
 
     };
 
-    public Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
+    public async Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
     {
         var target = parameters?.TryGetProperty("target", out var t) == true ? t.GetString() : null;
 
@@ -53,7 +37,7 @@ public class SysOpenShortcutHandler : ICommandHandler
             throw new ArgumentException("無效的捷徑目標");
         }
 
-        AllowSetForegroundWindow(ASFW_ANY);
+        token.ThrowIfCancellationRequested();
 
         var psi = new ProcessStartInfo {
             FileName = cmd.FileName,
@@ -61,23 +45,8 @@ public class SysOpenShortcutHandler : ICommandHandler
             UseShellExecute = true
         };
 
-        var proc = Process.Start(psi);
+        await ShortcutWindowHelper.StartAsync(psi, token, ["explorer", "control", "rundll32", "mmc"]);
 
-        if (proc != null) {
-            _ = Task.Run(async () => {
-                for (int i = 0; i < 20; i++)
-                {
-                    await Task.Delay(100);
-                    proc.Refresh();
-                    if (proc.MainWindowHandle != IntPtr.Zero) {
-                        ShowWindow(proc.MainWindowHandle, SW_RESTORE);
-                        SetForegroundWindow(proc.MainWindowHandle);
-                        break;
-                    }
-                }
-            });
-        }
-
-        return Task.FromResult<object?>(new { opened = target });
+        return new { opened = target };
     }
 }

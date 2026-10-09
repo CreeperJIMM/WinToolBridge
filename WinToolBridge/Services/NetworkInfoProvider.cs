@@ -85,6 +85,11 @@ public static class NetworkInfoProvider
                 ni.OperationalStatus != OperationalStatus.Up)
                 continue;
 
+            // .NET 9+ also enumerates filter/driver interfaces without an IP stack.
+            if (!ni.Supports(NetworkInterfaceComponent.IPv4) &&
+                !ni.Supports(NetworkInterfaceComponent.IPv6))
+                continue;
+
             IPInterfaceProperties ipProps;
             try { ipProps = ni.GetIPProperties(); } catch { continue; }
 

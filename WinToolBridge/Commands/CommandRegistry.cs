@@ -12,6 +12,8 @@ public class CommandRegistry
         Register(new SysInfoHandler());
         Register(new SysDetailsHandler());
         Register(new SysOpenShortcutHandler());
+        Register(new SysOpenDriveHandler());
+        Register(new SysOpenGpuControlPanelHandler());
         Register(new NetDetailsHandler());
         Register(new NetWifiDetailsHandler());
         Register(new NetPortDetailsHandler());

@@ -19,5 +19,14 @@
   - Allowed backend versions newer than the frontend while retaining the frontend's minimum compatible version check and client version information in the handshake.
   - Limited simultaneous client connections to eight and released connection slots on disconnect or failed upgrades.
   - Scoped outgoing message retries and acknowledgements to each connection and cancelled retries when that connection closes.
+  - Prevented retried commands from opening the same window or repeating an operation, while preserving the original result for subsequent retries.
+  - Added limits for oversized messages and excessive requests, and improved cancellation of network adapter shortcuts after disconnect.
   - Added protocol structure and parameter validation, rejected binary WebSocket messages, and returned errors for malformed requests when a request ID is available.
   - Improved WebSocket close handling with a bounded wait and safer repeated shutdown and disposal.
+
+- **USB Device Tree**:
+  - Added an interactive tree of USB host controllers, root hubs, hubs, ports, and connected devices, including child Plug and Play devices, disks, and volumes.
+  - Automatically updates when devices are connected or removed, with highlights to make changes easier to find.
+  - Shows device and driver information, USB version, connection speed, supported capabilities, and power state. Storage devices also show capacity and volume information, with shortcuts to open mounted drives.
+  - Identifies companion USB 2.0 and USB 3.x ports and highlights the corresponding port when selected.
+  - Includes device icons, keyboard navigation, smart default expansion, and shortcuts to device properties.

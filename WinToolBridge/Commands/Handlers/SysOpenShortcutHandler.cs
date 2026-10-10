@@ -7,6 +7,7 @@ namespace WinToolBridge.Commands.Handlers;
 public class SysOpenShortcutHandler : ICommandHandler
 {
     public string Action => "SYS:OPEN_SHORTCUT";
+    public bool RequiresDeduplication => true;
 
     private static readonly Dictionary<string, (string FileName, string Arguments)> Shortcuts = new() {
         // 裝置印表機

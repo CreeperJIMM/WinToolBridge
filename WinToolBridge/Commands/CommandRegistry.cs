@@ -37,6 +37,9 @@ public class CommandRegistry
         _handlers[handler.Action] = handler;
     }
 
+    internal bool RequiresDeduplication(string action) =>
+        _handlers.TryGetValue(action, out var handler) && handler.RequiresDeduplication;
+
     public async Task<(bool found, object? result, string? error)> DispatchAsync(
         string action,
         JsonElement? parameters,

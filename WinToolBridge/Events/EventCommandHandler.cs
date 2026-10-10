@@ -6,6 +6,7 @@ namespace WinToolBridge.Events;
 public sealed class EventCommandHandler(string action, EventSession session) : ICommandHandler
 {
     public string Action { get; } = action;
+    public bool RequiresDeduplication => true;
 
     public Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
     {

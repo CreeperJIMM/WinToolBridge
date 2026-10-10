@@ -7,6 +7,7 @@ namespace WinToolBridge.Commands.Handlers;
 public sealed class UsbOpenDevicePropertiesHandler(UsbTreeService usb, Action<ProcessStartInfo>? start = null) : ICommandHandler
 {
     public string Action => "USB:OPEN_DEVICE_PROPERTIES";
+    public bool RequiresDeduplication => true;
 
     public async Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
     {

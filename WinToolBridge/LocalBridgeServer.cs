@@ -30,6 +30,9 @@ public class LocalBridgeServer : IDisposable
         ?? "0.0.0";
     public const int DEFAULT_PORT = 58240;
     public const int MAX_CONNECTIONS = 8;
+    internal const int MAX_MESSAGE_BYTES = 64 * 1024;
+    private const int MAX_PENDING_MESSAGES = 32;
+    private const int MAX_RESPONSE_RETRIES = 256;
 
     private static readonly HashSet<string> AllowedOrigins = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -161,6 +164,8 @@ public class LocalBridgeServer : IDisposable
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(token);
         token = sessionCts.Token;
         var unackedRetries = new ConcurrentDictionary<string, CancellationTokenSource>();
+        using var requests = new ConnectionRequestTracker();
+        var pendingMessages = new List<Task>();
         using var events = Events.CreateSession(
             (payload, eventToken) => SendDatWithRetryAsync(socket, payload, unackedRetries, eventToken, "EVT"), token);
         var registry = new CommandRegistry(events, Usb);
@@ -170,22 +175,41 @@ public class LocalBridgeServer : IDisposable
 
         try {
             while (socket.State == WebSocketState.Open && !token.IsCancellationRequested) {
+                pendingMessages.RemoveAll(task => task.IsCompleted);
+                if (pendingMessages.Count >= MAX_PENDING_MESSAGES) {
+                    await Task.WhenAny(pendingMessages).WaitAsync(token);
+                    continue;
+                }
                 using var ms = new MemoryStream();
                 WebSocketReceiveResult result;
                 do {
                     result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
                     if (result.MessageType == WebSocketMessageType.Close) break;
+                    if (result.MessageType != WebSocketMessageType.Text || ms.Length + result.Count > MAX_MESSAGE_BYTES) {
+                        await CloseRejectedMessageAsync(socket, result.MessageType != WebSocketMessageType.Text
+                            ? WebSocketCloseStatus.InvalidMessageType : WebSocketCloseStatus.MessageTooBig,
+                            result.MessageType != WebSocketMessageType.Text ? "Text messages required" : "Message too large", token);
+                        return;
+                    }
                     ms.Write(buffer, 0, result.Count);
                 } while (!result.EndOfMessage);
 
                 if (result.MessageType == WebSocketMessageType.Close) break;
-                if (result.MessageType != WebSocketMessageType.Text) {
-                    await socket.CloseOutputAsync(WebSocketCloseStatus.InvalidMessageType, "Text messages required", token);
-                    break;
-                }
-
                 var rawJson = Encoding.UTF8.GetString(ms.ToArray());
-                _ = ProcessMessageAsync(socket, rawJson, registry, unackedRetries, token);
+                var processing = ProcessMessageAsync(socket, rawJson, registry, unackedRetries, requests, token);
+                // Finish a handshake before receiving another message. Only the
+                // receive loop may wait for the peer's close acknowledgement.
+                if (IsHandshake(rawJson)) {
+                    if (await processing) {
+                        sessionCts.Cancel();
+                        events.Dispose();
+                        using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                        await CloseRejectedMessageAsync(socket, WebSocketCloseStatus.PolicyViolation,
+                            "Server version below minimum", closeCts.Token);
+                        return;
+                    }
+                }
+                else pendingMessages.Add(processing);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -200,6 +224,7 @@ public class LocalBridgeServer : IDisposable
             sessionCts.Cancel();
             events.Dispose();
             unackedRetries.Clear();
+            requests.Dispose();
 
             bool sendLockTaken = false;
             using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -227,8 +252,30 @@ public class LocalBridgeServer : IDisposable
         }
     }
 
-    private async Task ProcessMessageAsync(WebSocket socket, string rawJson, CommandRegistry registry,
-        ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, CancellationToken token)
+    private async Task CloseRejectedMessageAsync(WebSocket socket, WebSocketCloseStatus status, string description, CancellationToken token)
+    {
+        // Called by the receive loop, which owns the sole receive operation.
+        // Give the peer a bounded opportunity to acknowledge the close before
+        // disposing its socket; do not retain the rest of an oversized message.
+        using var closeCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        closeCts.CancelAfter(TimeSpan.FromSeconds(2));
+        try {
+            await _sendLock.WaitAsync(closeCts.Token);
+            try { await socket.CloseOutputAsync(status, description, closeCts.Token); }
+            finally { _sendLock.Release(); }
+            var discard = new byte[8192];
+            while (socket.State == WebSocketState.CloseSent) {
+                var received = await socket.ReceiveAsync(new ArraySegment<byte>(discard), closeCts.Token);
+                if (received.MessageType == WebSocketMessageType.Close) break;
+            }
+        }
+        catch (OperationCanceledException) when (closeCts.IsCancellationRequested) { }
+        catch (WebSocketException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task<bool> ProcessMessageAsync(WebSocket socket, string rawJson, CommandRegistry registry,
+        ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, ConnectionRequestTracker requests, CancellationToken token)
     {
         string? msgId = null;
         string? reqId = null;
@@ -249,7 +296,7 @@ public class LocalBridgeServer : IDisposable
             var msg = root.Deserialize<ProtocolMessage>() ?? throw new JsonException("Missing message.");
             if (msg.type != "PNG") LogRecv(rawJson);
             ValidateMessage(msg);
-            await HandleMessageAsync(socket, msg, registry, unackedRetries, token);
+            return await HandleMessageAsync(socket, msg, registry, unackedRetries, requests, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (ObjectDisposedException) { }
@@ -258,7 +305,7 @@ public class LocalBridgeServer : IDisposable
         }
         catch (Exception ex) {
             LogWarn(string.Format(Strings.ConnectionError, ex.Message));
-            if (string.IsNullOrWhiteSpace(reqId) || token.IsCancellationRequested || socket.State != WebSocketState.Open) return;
+            if (string.IsNullOrWhiteSpace(reqId) || token.IsCancellationRequested || socket.State != WebSocketState.Open) return false;
 
             try {
                 if (!string.IsNullOrWhiteSpace(msgId)) {
@@ -277,6 +324,17 @@ public class LocalBridgeServer : IDisposable
                 LogWarn(string.Format(Strings.ConnectionError, sendEx.Message));
             }
         }
+        return false;
+    }
+
+    private static bool IsHandshake(string rawJson)
+    {
+        try {
+            using var document = JsonDocument.Parse(rawJson);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                ReadString(document.RootElement, "type") == "SYN";
+        }
+        catch (JsonException) { return false; }
     }
 
     private static string? ReadString(JsonElement value, string name) =>
@@ -320,12 +378,12 @@ public class LocalBridgeServer : IDisposable
         }
     }
 
-    private async Task HandleMessageAsync(WebSocket socket, ProtocolMessage msg, CommandRegistry registry,
-        ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, CancellationToken token)
+    private async Task<bool> HandleMessageAsync(WebSocket socket, ProtocolMessage msg, CommandRegistry registry,
+        ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, ConnectionRequestTracker requests, CancellationToken token)
     {
         if (msg.type == "PNG") {
             await SendSilentRawAsync(socket, new { type = "POG" }, token);
-            return;
+            return false;
         }
 
         if (msg.type == "ACK" && !string.IsNullOrEmpty(msg.ackId)) {
@@ -335,7 +393,7 @@ public class LocalBridgeServer : IDisposable
                 }
                 catch { }
             }
-            return;
+            return false;
         }
 
         // SYN 握手交握
@@ -362,8 +420,7 @@ public class LocalBridgeServer : IDisposable
                         serverVersion = SERVER_VERSION
                     }
                 }, token);
-                await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Server version below minimum", token);
-                return;
+                return true;
             }
 
             await SendLoggedRawAsync(socket, new {
@@ -376,7 +433,7 @@ public class LocalBridgeServer : IDisposable
                     os = $"{RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})"
                 }
             }, token);
-            return;
+            return false;
         }
 
         // DAT 指令處理
@@ -384,22 +441,64 @@ public class LocalBridgeServer : IDisposable
             var action = msg.payload?.TryGetProperty("action", out var actProp) == true ? actProp.GetString() ?? "" : "";
             var reqId = msg.payload?.TryGetProperty("reqId", out var rIdProp) == true ? rIdProp.GetString() : msg.msgId;
             var parameters = msg.payload?.TryGetProperty("params", out var pProp) == true ? pProp : (JsonElement?)null;
-            // Event handlers complete synchronously before the first send await, preserving receive order.
-            var eventDispatch = action is "EVENT:ON" or "EVENT:OFF" or "EVENT:RESET"
-                ? registry.DispatchAsync(action, parameters, token) : null;
-            if (!string.IsNullOrEmpty(msg.msgId)) {
-                await SendLoggedRawAsync(socket, new { type = "ACK", ackId = msg.msgId }, token);
+            var id = !string.IsNullOrWhiteSpace(msg.msgId) ? msg.msgId : reqId!;
+            var eventCommand = action is "EVENT:ON" or "EVENT:OFF" or "EVENT:RESET";
+            var admission = requests.Admit(id, msg.payload!.Value, eventCommand, out var entry, out var cached,
+                registry.RequiresDeduplication(action));
+            try {
+                // Event handlers complete before the first send await, preserving
+                // ON/OFF/RESET receive order. A retried event never runs again.
+                var eventDispatch = admission == ConnectionRequestTracker.Admission.New && eventCommand
+                    ? registry.DispatchAsync(action, parameters, token) : null;
+                JsonElement? response = null;
+                if (eventDispatch != null) response = await CompleteAsync(eventDispatch);
+                if (!string.IsNullOrEmpty(msg.msgId)) {
+                    await SendLoggedRawAsync(socket, new { type = "ACK", ackId = msg.msgId }, token);
+                }
+                if (admission == ConnectionRequestTracker.Admission.Pending) return false;
+                if (admission == ConnectionRequestTracker.Admission.Completed) {
+                    await SendDatWithRetryAsync(socket, cached!.Value, unackedRetries, token, responseMsgId: entry!.ResponseMessageId);
+                    return false;
+                }
+                if (admission is ConnectionRequestTracker.Admission.Conflict or ConnectionRequestTracker.Admission.Busy) {
+                    await SendDatWithRetryAsync(socket, new {
+                        reqId, status = "ERROR", data = (object?)null,
+                        error = admission == ConnectionRequestTracker.Admission.Conflict
+                            ? "REQUEST_ID_REUSED: A request ID cannot be reused with different content."
+                            : "SERVER_BUSY: Too many requests on this connection. Try again later."
+                    }, unackedRetries, token);
+                    return false;
+                }
+                token.ThrowIfCancellationRequested();
+                response ??= await CompleteAsync(registry.DispatchAsync(action, parameters, token));
+                await SendDatWithRetryAsync(socket, response.Value, unackedRetries, token, responseMsgId: entry!.ResponseMessageId);
+
+                async Task<JsonElement> CompleteAsync(Task<(bool found, object? result, string? error)> dispatch)
+                {
+                    var (found, result, error) = await dispatch;
+                    JsonElement payload;
+                    try {
+                        payload = JsonSerializer.SerializeToElement(new {
+                            reqId, status = found && error == null ? "OK" : "ERROR", error, data = result
+                        });
+                    }
+                    catch (Exception ex) {
+                        LogWarn(string.Format(Strings.ConnectionError, ex.Message));
+                        payload = JsonSerializer.SerializeToElement(new {
+                            reqId, status = "ERROR", error = "Command result could not be serialized.", data = (object?)null
+                        });
+                    }
+                    // Remember completion before sending: a lost reply must not repeat
+                    // a completed side effect, including commands that returned an error.
+                    requests.Complete(entry!, payload);
+                    return payload;
+                }
             }
-
-            var (found, result, error) = await (eventDispatch ?? registry.DispatchAsync(action, parameters, token));
-
-            await SendDatWithRetryAsync(socket, new {
-                reqId = reqId,
-                status = found && error == null ? "OK" : "ERROR",
-                error = error,
-                data = result
-            }, unackedRetries, token);
+            finally {
+                if (admission == ConnectionRequestTracker.Admission.New) requests.Abandon(id, entry!);
+            }
         }
+        return false;
     }
 
     private static Version ParseVersionSafe(string verStr)
@@ -413,10 +512,10 @@ public class LocalBridgeServer : IDisposable
     }
 
     private async Task SendDatWithRetryAsync(WebSocket socket, object payloadData,
-        ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, CancellationToken token, string messageType = "DAT")
+        ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, CancellationToken token, string messageType = "DAT", string? responseMsgId = null)
     {
         token.ThrowIfCancellationRequested();
-        var msgId = $"b_dat_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString("N")[..6]}";
+        var msgId = responseMsgId ?? $"b_dat_{Guid.NewGuid():N}";
         var messageObj = new {
             type = messageType,
             msgId = msgId,
@@ -425,13 +524,23 @@ public class LocalBridgeServer : IDisposable
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
         var retryToken = cts.Token;
-        unackedRetries[msgId] = cts;
+        bool registered;
+        lock (unackedRetries) {
+            registered = unackedRetries.Count < MAX_RESPONSE_RETRIES && unackedRetries.TryAdd(msgId, cts);
+        }
+        if (!registered) {
+            cts.Dispose();
+            // A replay shares its existing retry worker. Under an ACK backlog,
+            // still send the reply once without accumulating more retry tasks.
+            await SendLoggedRawAsync(socket, messageObj, token);
+            return;
+        }
 
         try {
             await SendLoggedRawAsync(socket, messageObj, retryToken);
         }
         catch {
-            unackedRetries.TryRemove(msgId, out _);
+            unackedRetries.TryRemove(new KeyValuePair<string, CancellationTokenSource>(msgId, cts));
             cts.Dispose();
             throw;
         }
@@ -459,7 +568,7 @@ public class LocalBridgeServer : IDisposable
             LogWarn(string.Format(Strings.ConnectionError, ex.Message));
         }
         finally {
-            unackedRetries.TryRemove(msgId, out _);
+            unackedRetries.TryRemove(new KeyValuePair<string, CancellationTokenSource>(msgId, cts));
             cts.Dispose();
         }
     }

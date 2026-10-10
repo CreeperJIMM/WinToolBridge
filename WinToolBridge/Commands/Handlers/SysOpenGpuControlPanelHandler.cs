@@ -10,6 +10,7 @@ namespace WinToolBridge.Commands.Handlers;
 public class SysOpenGpuControlPanelHandler : ICommandHandler
 {
     public string Action => "SYS:OPEN_GPU_CONTROL_PANEL";
+    public bool RequiresDeduplication => true;
 
     public async Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
     {

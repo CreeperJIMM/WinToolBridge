@@ -8,6 +8,7 @@ namespace WinToolBridge.Commands.Handlers;
 public class SysOpenDriveHandler : ICommandHandler
 {
     public string Action => "SYS:OPEN_DRIVE";
+    public bool RequiresDeduplication => true;
 
     public async Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
     {

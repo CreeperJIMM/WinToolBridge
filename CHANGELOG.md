@@ -1,3 +1,10 @@
+## [1.2.1]
+
+### What's Fixed in v1.2.1
+
+- Improved shortcut window visibility when Windows declines foreground activation, reducing cases where opened windows remain behind the browser.
+- Fixed USB device properties windows remaining in the background after opening, making successful launches appear unresponsive.
+
 ## [1.2.0]
 
 ### What's New in v1.2.0

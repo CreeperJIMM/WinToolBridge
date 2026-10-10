@@ -6,7 +6,7 @@ namespace WinToolBridge.Services.Usb;
 public static class UsbDevicePropertiesService
 {
     // The instance ID must come from the backend's current device enumeration.
-    public static void Open(string instanceId, CancellationToken token, Action<ProcessStartInfo>? start = null)
+    public static async Task OpenAsync(string instanceId, CancellationToken token, Action<ProcessStartInfo>? start = null)
     {
         var startInfo = new ProcessStartInfo {
             FileName = Path.Combine(Environment.SystemDirectory, "rundll32.exe"),
@@ -20,7 +20,6 @@ public static class UsbDevicePropertiesService
             start(startInfo);
             return;
         }
-        using var process = Process.Start(startInfo);
-        if (process == null) throw new InvalidOperationException("Unable to open device properties.");
+        await ShortcutWindowHelper.StartAsync(startInfo, token, matchStartedProcessOnly: true);
     }
 }

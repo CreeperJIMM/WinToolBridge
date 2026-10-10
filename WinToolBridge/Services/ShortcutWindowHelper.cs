@@ -25,11 +25,16 @@ internal static class ShortcutWindowHelper
     private static extern bool ShowWindowAsync(IntPtr window, int command);
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y,
+        int width, int height, uint flags);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    private static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetPackageFamilyName(IntPtr process, ref uint length, StringBuilder? name);
 
     public static async Task StartAsync(ProcessStartInfo startInfo, CancellationToken token,
-        string[]? shellHosts = null)
+        string[]? shellHosts = null, bool matchStartedProcessOnly = false)
     {
         token.ThrowIfCancellationRequested();
         var previous = GetVisibleWindows();
@@ -42,6 +47,7 @@ internal static class ShortcutWindowHelper
         await TryBringToFrontAsync(window => WithWindowProcess(window, candidate => {
             if (process != null && candidate.Id == process.Id &&
                 (shellHosts == null || !previous.Contains(window))) return true;
+            if (matchStartedProcessOnly) return false;
             if (shellHosts != null) {
                 return !previous.Contains(window) && shellHosts.Contains(candidate.ProcessName,
                     StringComparer.OrdinalIgnoreCase);
@@ -83,13 +89,31 @@ internal static class ShortcutWindowHelper
                 if (!matches(window)) continue;
                 if (IsIconic(window)) ShowWindowAsync(window, 9); // SW_RESTORE
                 if (!SetForegroundWindow(window)) {
-                    Debug.WriteLine("Shortcut window activation was declined by Windows.");
+                    RaiseWithoutActivation(window);
                 }
                 return;
             }
             await Task.Delay(100, token);
         }
-        Debug.WriteLine("No matching shortcut window appeared within the activation deadline.");
+    }
+
+    private static void RaiseWithoutActivation(IntPtr window)
+    {
+        // A WebSocket request does not grant foreground permission. Raise only
+        // this matching window, without input-queue attachment or keyboard input.
+        // Async positioning keeps an unresponsive target from blocking the bridge.
+        const uint flags = 0x0001 | 0x0002 | 0x0010 | 0x4000; // NOSIZE | NOMOVE | NOACTIVATE | ASYNCWINDOWPOS
+        var wasTopmost = (GetWindowLong(window, -20) & 0x0008) != 0; // GWL_EXSTYLE / WS_EX_TOPMOST
+        var raised = false;
+        try {
+            raised = SetWindowPos(window, new IntPtr(-1), 0, 0, 0, 0, flags); // HWND_TOPMOST
+        }
+        finally {
+            // Preserve an existing topmost window; otherwise restore normal stacking.
+            if (raised && !wasTopmost) {
+                SetWindowPos(window, new IntPtr(-2), 0, 0, 0, 0, flags); // HWND_NOTOPMOST
+            }
+        }
     }
 
     private static HashSet<IntPtr> GetVisibleWindows()

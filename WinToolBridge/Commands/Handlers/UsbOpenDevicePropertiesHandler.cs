@@ -25,7 +25,7 @@ public sealed class UsbOpenDevicePropertiesHandler(UsbTreeService usb, Action<Pr
         var instanceId = result.details.windows?.instanceId;
         if (string.IsNullOrWhiteSpace(instanceId))
             throw new InvalidOperationException("USB_DEVICE_PROPERTIES_UNAVAILABLE: This node has no Windows device properties.");
-        UsbDevicePropertiesService.Open(instanceId, token, start);
+        await UsbDevicePropertiesService.OpenAsync(instanceId, token, start);
         return new { nodeId, opened = true };
     }
 }

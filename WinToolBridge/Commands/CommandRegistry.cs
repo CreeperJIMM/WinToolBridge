@@ -1,5 +1,7 @@
 ﻿using System.Text.Json;
 using WinToolBridge.Commands.Handlers;
+using WinToolBridge.Events;
+using WinToolBridge.Services.Usb;
 
 namespace WinToolBridge.Commands;
 
@@ -7,7 +9,7 @@ public class CommandRegistry
 {
     private readonly Dictionary<string, ICommandHandler> _handlers = new();
 
-    public CommandRegistry()
+    public CommandRegistry(EventSession? events = null, UsbTreeService? usb = null)
     {
         Register(new SysInfoHandler());
         Register(new SysDetailsHandler());
@@ -19,6 +21,15 @@ public class CommandRegistry
         Register(new NetPortDetailsHandler());
         Register(new NetDnsBenchmarkHandler());
         Register(new NetOpenAdapterDetailsHandler());
+        usb ??= new UsbTreeService();
+        Register(new UsbTreeHandler(usb));
+        Register(new UsbNodeDetailsHandler(usb));
+        Register(new UsbOpenDevicePropertiesHandler(usb));
+        if (events != null) {
+            Register(new EventCommandHandler("EVENT:ON", events));
+            Register(new EventCommandHandler("EVENT:OFF", events));
+            Register(new EventCommandHandler("EVENT:RESET", events));
+        }
     }
 
     public void Register(ICommandHandler handler)

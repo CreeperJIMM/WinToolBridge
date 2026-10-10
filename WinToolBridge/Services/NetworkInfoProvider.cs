@@ -8,6 +8,15 @@ namespace WinToolBridge.Services;
 
 public static class NetworkInfoProvider
 {
+    public static Task<object> GetEventInfoAsync(CancellationToken cancellationToken) => Task.Run(async () => {
+        cancellationToken.ThrowIfCancellationRequested();
+        var network = GetNetworkTopology();
+        cancellationToken.ThrowIfCancellationRequested();
+        var wifi = await GetWifiDetailsAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        return (object)new { network, wifi, timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+    }, cancellationToken);
+
     #region Win32 API - IP Helper & Routing
 
     [DllImport("iphlpapi.dll", CharSet = CharSet.Auto)]

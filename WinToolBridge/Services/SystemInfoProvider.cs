@@ -173,6 +173,23 @@ public static class SystemInfoProvider
         }
     }
 
+    public static Task<object> GetDynamicInfoAsync(CancellationToken token) => Task.Run(() => {
+        token.ThrowIfCancellationRequested();
+        var memory = GetMemoryInfo();
+        token.ThrowIfCancellationRequested();
+        var battery = GetBatteryStatus();
+        token.ThrowIfCancellationRequested();
+        var storage = GetStorageInfo();
+        token.ThrowIfCancellationRequested();
+        return (object)new {
+            memory,
+            battery,
+            storage,
+            uptimeSeconds = Environment.TickCount64 / 1000,
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+    }, token);
+
     public static object GetCpuInfo()
     {
         var sw = Stopwatch.StartNew();

@@ -6,7 +6,11 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using WinToolBridge.Commands;
+using WinToolBridge.Events;
 using WinToolBridge.Resources;
+using WinToolBridge.Services.Usb;
+using WinToolBridge.Services;
+using WinToolBridge.Http;
 
 namespace WinToolBridge;
 
@@ -36,16 +40,21 @@ public class LocalBridgeServer : IDisposable
     public int Port { get; }
     private readonly HttpListener _listener;
     private readonly CancellationTokenSource _cts = new();
-    private readonly CommandRegistry _registry = new();
+    public EventRegistry Events { get; } = new();
+    public UsbTreeService Usb { get; }
+    public ImageAssetService Images { get; } = new();
+    private readonly ImageAssetHttpHandler _imageHttp;
     private readonly object _lifecycleLock = new();
     private bool _isDisposed = false;
     private bool _isStopped = false;
     private int _activeConnections;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
-    public LocalBridgeServer(int port = DEFAULT_PORT)
+    public LocalBridgeServer(int port = DEFAULT_PORT, UsbTreeService? usb = null)
     {
         Port = port;
+        Usb = usb ?? new UsbTreeService(images: Images, assetBaseUrl: $"http://127.0.0.1:{Port}");
+        _imageHttp = new ImageAssetHttpHandler(Images);
         _listener = new HttpListener();
         _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
     }
@@ -80,8 +89,8 @@ public class LocalBridgeServer : IDisposable
 
                 context.Response.Headers.Add("Access-Control-Allow-Origin", rawOrigin);
                 context.Response.Headers.Add("Access-Control-Allow-Private-Network", "true");
-                context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
-                context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization, If-None-Match");
+                context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
 
                 if (context.Request.HttpMethod == "OPTIONS") {
                     context.Response.StatusCode = (int)HttpStatusCode.NoContent;
@@ -112,8 +121,7 @@ public class LocalBridgeServer : IDisposable
                     }
                 }
                 else {
-                    context.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                    context.Response.Close();
+                    _ = ProcessHttpAsync(context, token);
                 }
             }
             catch (Exception) {
@@ -132,11 +140,30 @@ public class LocalBridgeServer : IDisposable
         }
     }
 
+    private async Task ProcessHttpAsync(HttpListenerContext context, CancellationToken token)
+    {
+        try {
+            await _imageHttp.HandleAsync(context, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (ObjectDisposedException) { }
+        catch (Exception ex) {
+            if (!token.IsCancellationRequested) LogWarn(string.Format(Strings.ConnectionError, ex.Message));
+        }
+        finally {
+            try { context.Response.Close(); }
+            catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException or IOException) { }
+        }
+    }
+
     private async Task ProcessSessionAsync(WebSocket socket, string clientIp, CancellationToken token)
     {
         using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(token);
         token = sessionCts.Token;
         var unackedRetries = new ConcurrentDictionary<string, CancellationTokenSource>();
+        using var events = Events.CreateSession(
+            (payload, eventToken) => SendDatWithRetryAsync(socket, payload, unackedRetries, eventToken, "EVT"), token);
+        var registry = new CommandRegistry(events, Usb);
         LogSuccess(string.Format(Strings.ClientConnected, clientIp));
 
         var buffer = new byte[8192];
@@ -158,7 +185,7 @@ public class LocalBridgeServer : IDisposable
                 }
 
                 var rawJson = Encoding.UTF8.GetString(ms.ToArray());
-                _ = ProcessMessageAsync(socket, rawJson, unackedRetries, token);
+                _ = ProcessMessageAsync(socket, rawJson, registry, unackedRetries, token);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -171,6 +198,7 @@ public class LocalBridgeServer : IDisposable
             // Cancel only this session's commands and response retries.
             // Each retry task owns disposal of its cancellation source.
             sessionCts.Cancel();
+            events.Dispose();
             unackedRetries.Clear();
 
             bool sendLockTaken = false;
@@ -199,7 +227,7 @@ public class LocalBridgeServer : IDisposable
         }
     }
 
-    private async Task ProcessMessageAsync(WebSocket socket, string rawJson,
+    private async Task ProcessMessageAsync(WebSocket socket, string rawJson, CommandRegistry registry,
         ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, CancellationToken token)
     {
         string? msgId = null;
@@ -221,7 +249,7 @@ public class LocalBridgeServer : IDisposable
             var msg = root.Deserialize<ProtocolMessage>() ?? throw new JsonException("Missing message.");
             if (msg.type != "PNG") LogRecv(rawJson);
             ValidateMessage(msg);
-            await HandleMessageAsync(socket, msg, unackedRetries, token);
+            await HandleMessageAsync(socket, msg, registry, unackedRetries, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (ObjectDisposedException) { }
@@ -292,7 +320,7 @@ public class LocalBridgeServer : IDisposable
         }
     }
 
-    private async Task HandleMessageAsync(WebSocket socket, ProtocolMessage msg,
+    private async Task HandleMessageAsync(WebSocket socket, ProtocolMessage msg, CommandRegistry registry,
         ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, CancellationToken token)
     {
         if (msg.type == "PNG") {
@@ -353,15 +381,17 @@ public class LocalBridgeServer : IDisposable
 
         // DAT 指令處理
         if (msg.type == "DAT") {
+            var action = msg.payload?.TryGetProperty("action", out var actProp) == true ? actProp.GetString() ?? "" : "";
+            var reqId = msg.payload?.TryGetProperty("reqId", out var rIdProp) == true ? rIdProp.GetString() : msg.msgId;
+            var parameters = msg.payload?.TryGetProperty("params", out var pProp) == true ? pProp : (JsonElement?)null;
+            // Event handlers complete synchronously before the first send await, preserving receive order.
+            var eventDispatch = action is "EVENT:ON" or "EVENT:OFF" or "EVENT:RESET"
+                ? registry.DispatchAsync(action, parameters, token) : null;
             if (!string.IsNullOrEmpty(msg.msgId)) {
                 await SendLoggedRawAsync(socket, new { type = "ACK", ackId = msg.msgId }, token);
             }
 
-            var action = msg.payload?.TryGetProperty("action", out var actProp) == true ? actProp.GetString() ?? "" : "";
-            var reqId = msg.payload?.TryGetProperty("reqId", out var rIdProp) == true ? rIdProp.GetString() : msg.msgId;
-            var parameters = msg.payload?.TryGetProperty("params", out var pProp) == true ? pProp : (JsonElement?)null;
-
-            var (found, result, error) = await _registry.DispatchAsync(action, parameters, token);
+            var (found, result, error) = await (eventDispatch ?? registry.DispatchAsync(action, parameters, token));
 
             await SendDatWithRetryAsync(socket, new {
                 reqId = reqId,
@@ -383,12 +413,12 @@ public class LocalBridgeServer : IDisposable
     }
 
     private async Task SendDatWithRetryAsync(WebSocket socket, object payloadData,
-        ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, CancellationToken token)
+        ConcurrentDictionary<string, CancellationTokenSource> unackedRetries, CancellationToken token, string messageType = "DAT")
     {
         token.ThrowIfCancellationRequested();
         var msgId = $"b_dat_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Guid.NewGuid().ToString("N")[..6]}";
         var messageObj = new {
-            type = "DAT",
+            type = messageType,
             msgId = msgId,
             payload = payloadData
         };
@@ -549,6 +579,7 @@ public class LocalBridgeServer : IDisposable
         lock (_lifecycleLock) {
             if (_isDisposed || _isStopped) return;
             _isStopped = true;
+            Usb.Dispose();
             try {
                 _cts.Cancel();
                 if (_listener.IsListening) {

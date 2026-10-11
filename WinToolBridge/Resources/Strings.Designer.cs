@@ -151,6 +151,51 @@ namespace WinToolBridge.Resources {
         }
         
         /// <summary>
+        ///   查詢類似 Unable to start the administrator helper. Please try again. 的當地語系化字串。
+        /// </summary>
+        internal static string ElevationFailed {
+            get {
+                return ResourceManager.GetString("ElevationFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Currently running as administrator 的當地語系化字串。
+        /// </summary>
+        internal static string ElevationMainElevated {
+            get {
+                return ResourceManager.GetString("ElevationMainElevated", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 To use standard privileges, exit the application and open it again by double-clicking. 的當地語系化字串。
+        /// </summary>
+        internal static string ElevationMainElevatedTip {
+            get {
+                return ResourceManager.GetString("ElevationMainElevatedTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Run as administrator 的當地語系化字串。
+        /// </summary>
+        internal static string ElevationRunAsAdministrator {
+            get {
+                return ResourceManager.GetString("ElevationRunAsAdministrator", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查詢類似 Switch to standard privileges 的當地語系化字串。
+        /// </summary>
+        internal static string ElevationUseStandardPrivileges {
+            get {
+                return ResourceManager.GetString("ElevationUseStandardPrivileges", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   查詢類似 Error 的當地語系化字串。
         /// </summary>
         internal static string Error {

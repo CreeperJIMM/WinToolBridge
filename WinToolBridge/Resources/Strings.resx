@@ -223,4 +223,19 @@
   <data name="UpdateSettingsFailed" xml:space="preserve">
 	  <value>Unable to save the automatic update check preference.</value>
   </data>
+  <data name="ElevationRunAsAdministrator" xml:space="preserve">
+    <value>Run as administrator</value>
+  </data>
+  <data name="ElevationUseStandardPrivileges" xml:space="preserve">
+    <value>Switch to standard privileges</value>
+  </data>
+  <data name="ElevationMainElevated" xml:space="preserve">
+    <value>Currently running as administrator</value>
+  </data>
+  <data name="ElevationMainElevatedTip" xml:space="preserve">
+    <value>To use standard privileges, exit the application and open it again by double-clicking.</value>
+  </data>
+  <data name="ElevationFailed" xml:space="preserve">
+    <value>Unable to start the administrator helper. Please try again.</value>
+  </data>
 </root>

@@ -1,3 +1,30 @@
+## [1.3.0]
+
+### What's New in v1.3.0
+
+- **Physical Disk Information and SMART**:
+  - Added `STORAGE:GET_DISKS` and `STORAGE:GET_DISK_DETAILS` for physical disk enumeration and on-demand details, including model, firmware, serial number, capacity, mounted paths, and section-level availability.
+  - Added Explorer drive icons and identification of the disk containing the running Windows installation.
+  - Added direct NVMe Identify and SMART/Health queries, with temperature, spare capacity, estimated wear, power-on statistics, host read/write totals, and full-width raw counters. Large decimal counters are returned as strings to avoid precision loss in the browser.
+  - Excludes disks whose SMART query explicitly reports unsupported; access-denied, unknown-protocol, and transient failures remain visible with their availability status.
+
+- **Realtek USB–NVMe SMART**:
+  - Added fixed read-only Identify and SMART queries for known RTL9210, RTL9211, and RTL9220 bridge IDs, including Sabrent RTL9211 and Actions AM8180 variants.
+  - Basic disk information remains available when SMART requires administrator privileges. Responses indicate `requiresElevation` without opening UAC automatically.
+  - SATA protocols, RAID mode switching, and unknown custom bridge IDs are not included. Compatibility still depends on the device's firmware and operating mode.
+
+- **Administrator Helper and Tray Controls**:
+  - Added `ElevationService` and a separate administrator helper so the main application can retain standard privileges while the helper handles supported privileged disk queries.
+  - Added `SYS:REQUEST_ELEVATION` for explicit webpage requests, returning success, cancellation, or failure, and a Windows UAC shield image through the existing local icon endpoint.
+  - Added mutually exclusive tray actions to request administrator privileges or return the helper to standard mode. A main application launched as administrator instead shows a disabled status with instructions to exit and reopen normally.
+  - Webpage elevation and helper disconnection update the tray state, including before the menu is first opened. Returning to standard mode or exiting closes the helper connection.
+  - Helper communication uses a restricted local named pipe, process identity checks, validated disk IDs, bounded messages, serialized queries, and cancellation handling. It does not accept arbitrary commands or executable paths.
+
+- **Disk Connection Information**:
+  - Added current and maximum PCIe generation and lane counts for direct NVMe endpoints when Windows exposes the properties, preserving unavailable values instead of substituting upstream controller links.
+  - Added `NVM Express` and `UASP (NVM Express)` interface labels where identifiable.
+  - Reuses USB device-tree queries to associate USB disks with their physical device node and return negotiated receive/transmit rates, lane counts, and declared device capabilities independently of SMART permissions.
+
 ## [1.2.1]
 
 ### What's Fixed in v1.2.1

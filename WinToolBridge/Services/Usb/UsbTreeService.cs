@@ -110,6 +110,32 @@ public sealed class UsbTreeService : IDisposable, IAsyncDisposable
         }
     }
 
+    internal async Task<WinToolBridge.Services.Storage.StorageUsbConnection?> GetDiskConnectionAsync(string instanceId, CancellationToken token)
+    {
+        while (true) {
+            var snapshot = await GetSnapshotAsync(token);
+            var targets = snapshot.data.querySnapshot?.targets;
+            if (targets == null) return null;
+            var disk = snapshot.data.nodes.FirstOrDefault(node => node.kind is "DiskDevice" or "Device" &&
+                targets.TryGetValue(node.nodeId, out var target) &&
+                string.Equals(target.device?.windows.instanceId, instanceId, StringComparison.OrdinalIgnoreCase));
+            if (disk == null) return null;
+            var byId = snapshot.data.nodes.ToDictionary(node => node.nodeId);
+            var physical = disk;
+            while (physical.kind != "Device" && physical.parentId != null && byId.TryGetValue(physical.parentId, out var parent))
+                physical = parent;
+            if (physical.kind != "Device") return null;
+            // Existing detail flow validates the current physical device and rereads its hub port.
+            var result = await GetNodeDetailsAsync(physical.nodeId, token);
+            if (result.revision != snapshot.revision) continue;
+            var details = result.details;
+            if (details.node.connectionStatus != "DeviceConnected") return null;
+            return new(details.node.nodeId, details.node.speed, details.port?.rxSpeedMbps, details.port?.txSpeedMbps,
+                details.port?.rxLaneCount, details.port?.txLaneCount,
+                details.usb?.speedCapabilities ?? details.port?.deviceSpeedCapabilities);
+        }
+    }
+
     public void Dispose()
     {
         lock (_sync) {

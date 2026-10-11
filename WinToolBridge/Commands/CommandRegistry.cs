@@ -2,6 +2,8 @@
 using WinToolBridge.Commands.Handlers;
 using WinToolBridge.Events;
 using WinToolBridge.Services.Usb;
+using WinToolBridge.Services.Storage;
+using WinToolBridge.Services;
 
 namespace WinToolBridge.Commands;
 
@@ -9,19 +11,24 @@ public class CommandRegistry
 {
     private readonly Dictionary<string, ICommandHandler> _handlers = new();
 
-    public CommandRegistry(EventSession? events = null, UsbTreeService? usb = null)
+    public CommandRegistry(EventSession? events = null, UsbTreeService? usb = null,
+        ImageAssetService? images = null, string? assetBaseUrl = null, ElevationService? elevation = null)
     {
         Register(new SysInfoHandler());
         Register(new SysDetailsHandler());
         Register(new SysOpenShortcutHandler());
         Register(new SysOpenDriveHandler());
         Register(new SysOpenGpuControlPanelHandler());
+        if (elevation != null) Register(new SysRequestElevationHandler(elevation));
         Register(new NetDetailsHandler());
         Register(new NetWifiDetailsHandler());
         Register(new NetPortDetailsHandler());
         Register(new NetDnsBenchmarkHandler());
         Register(new NetOpenAdapterDetailsHandler());
         usb ??= new UsbTreeService();
+        var storage = new PhysicalDiskService(images, assetBaseUrl, elevation, usb);
+        Register(new StorageDisksHandler(storage));
+        Register(new StorageDiskDetailsHandler(storage));
         Register(new UsbTreeHandler(usb));
         Register(new UsbNodeDetailsHandler(usb));
         Register(new UsbOpenDevicePropertiesHandler(usb));

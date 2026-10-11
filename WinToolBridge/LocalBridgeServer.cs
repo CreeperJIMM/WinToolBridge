@@ -47,15 +47,17 @@ public class LocalBridgeServer : IDisposable
     public UsbTreeService Usb { get; }
     public ImageAssetService Images { get; } = new();
     private readonly ImageAssetHttpHandler _imageHttp;
+    private readonly ElevationService? _elevation;
     private readonly object _lifecycleLock = new();
     private bool _isDisposed = false;
     private bool _isStopped = false;
     private int _activeConnections;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
-    public LocalBridgeServer(int port = DEFAULT_PORT, UsbTreeService? usb = null)
+    public LocalBridgeServer(int port = DEFAULT_PORT, UsbTreeService? usb = null, ElevationService? elevation = null)
     {
         Port = port;
+        _elevation = elevation;
         Usb = usb ?? new UsbTreeService(images: Images, assetBaseUrl: $"http://127.0.0.1:{Port}");
         _imageHttp = new ImageAssetHttpHandler(Images);
         _listener = new HttpListener();
@@ -168,7 +170,7 @@ public class LocalBridgeServer : IDisposable
         var pendingMessages = new List<Task>();
         using var events = Events.CreateSession(
             (payload, eventToken) => SendDatWithRetryAsync(socket, payload, unackedRetries, eventToken, "EVT"), token);
-        var registry = new CommandRegistry(events, Usb);
+        var registry = new CommandRegistry(events, Usb, Images, $"http://127.0.0.1:{Port}", _elevation);
         LogSuccess(string.Format(Strings.ClientConnected, clientIp));
 
         var buffer = new byte[8192];

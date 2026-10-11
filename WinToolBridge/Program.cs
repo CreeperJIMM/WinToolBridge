@@ -18,6 +18,11 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (ElevationService.IsHelperMode(args)) {
+            ElevationService.RunHelperAsync(args).GetAwaiter().GetResult();
+            return;
+        }
+
         bool isSilent = args.Any(arg => string.Equals(arg, "-silent", StringComparison.OrdinalIgnoreCase));
 
         using var mutex = new Mutex(true, "Global\\WinToolBridge_SingleInstance_Mutex", out bool isNewInstance);
@@ -27,9 +32,10 @@ static class Program
         }
 
         ApplicationConfiguration.Initialize();
+        using var elevation = new ElevationService();
 
         try {
-            _server = new LocalBridgeServer();
+            _server = new LocalBridgeServer(elevation: elevation);
             _systemInfoEvents = new SystemInfoChangedHandler(_server.Events);
             _systemNotifications = new SystemChangeNotificationWindow(_systemInfoEvents.NotifyChange);
             _networkInfoEvents = new NetworkInfoChangedHandler(_server.Events);
@@ -52,13 +58,14 @@ static class Program
         }
 
         try {
-            using var trayMenu = new TrayMenu(_server.Port, isSilent);
+            using var trayMenu = new TrayMenu(_server.Port, isSilent, elevation);
             Application.ApplicationExit += OnApplicationExit;
             Application.Run();
         }
         finally {
             Application.ApplicationExit -= OnApplicationExit;
             OnApplicationExit(null, EventArgs.Empty);
+            elevation.Dispose();
         }
         Environment.Exit(0);
     }

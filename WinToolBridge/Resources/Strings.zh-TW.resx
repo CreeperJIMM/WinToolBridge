@@ -223,4 +223,19 @@
   <data name="UpdateSettingsFailed" xml:space="preserve">
 	  <value>無法儲存自動檢查更新的設定。</value>
   </data>
+  <data name="ElevationRunAsAdministrator" xml:space="preserve">
+    <value>以管理員執行</value>
+  </data>
+  <data name="ElevationUseStandardPrivileges" xml:space="preserve">
+    <value>降級一般模式</value>
+  </data>
+  <data name="ElevationMainElevated" xml:space="preserve">
+    <value>目前以管理員身分執行</value>
+  </data>
+  <data name="ElevationMainElevatedTip" xml:space="preserve">
+    <value>若要降級為一般權限請結束程式再雙擊打開</value>
+  </data>
+  <data name="ElevationFailed" xml:space="preserve">
+    <value>無法啟動管理員輔助程序，請再試一次。</value>
+  </data>
 </root>

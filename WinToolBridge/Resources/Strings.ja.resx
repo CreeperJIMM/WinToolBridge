@@ -223,4 +223,19 @@
   <data name="UpdateSettingsFailed" xml:space="preserve">
 	  <value>更新の自動確認設定を保存できません。</value>
   </data>
+  <data name="ElevationRunAsAdministrator" xml:space="preserve">
+    <value>管理者として実行</value>
+  </data>
+  <data name="ElevationUseStandardPrivileges" xml:space="preserve">
+    <value>通常の権限に戻す</value>
+  </data>
+  <data name="ElevationMainElevated" xml:space="preserve">
+    <value>現在、管理者として実行しています</value>
+  </data>
+  <data name="ElevationMainElevatedTip" xml:space="preserve">
+    <value>通常の権限に戻すには、アプリを終了してからダブルクリックで開き直してください。</value>
+  </data>
+  <data name="ElevationFailed" xml:space="preserve">
+    <value>管理者ヘルパーを起動できませんでした。もう一度お試しください。</value>
+  </data>
 </root>

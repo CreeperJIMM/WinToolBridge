@@ -1,5 +1,6 @@
 using System.Reflection;
 using WinToolBridge.Resources;
+using WinToolBridge.Services;
 
 namespace WinToolBridge;
 
@@ -13,11 +14,25 @@ public sealed class TrayMenu : IDisposable
     private readonly CancellationTokenSource _shutdownCts = new();
     private bool _isCheckingUpdates;
     private bool _isExiting;
+    private readonly ElevationService _elevation;
+    private ToolStripMenuItem? _elevationItem;
+    private ToolStripMenuItem? _mainElevatedItem;
+    private Bitmap? _shieldImage;
+    private readonly ToolTip _elevationTip = new();
+    private bool _showingElevationTip;
+    private bool _isElevating;
+    private readonly Control _uiDispatcher = new();
 
-    public TrayMenu(int port, bool isSilent)
+    public TrayMenu(int port, bool isSilent, ElevationService elevation)
     {
+        _elevation = elevation;
         try {
+            // The hidden context menu has no handle until first shown. Keep a UI
+            // handle available for notifications originating from WebSocket workers.
+            _ = _uiDispatcher.Handle;
             SetupTrayIcon(port, isSilent);
+            _elevation.StateChanged += OnElevationStateChanged;
+            UpdateElevationItems();
             Application.Idle += OnFirstIdle;
             Application.ApplicationExit += OnApplicationExit;
         }
@@ -98,9 +113,35 @@ public sealed class TrayMenu : IDisposable
             _automaticUpdateItem,
             _manualUpdateItem,
             githubItem,
-            new ToolStripSeparator(),
-            exitItem
+            new ToolStripSeparator()
         });
+
+        if (_elevation.IsMainProcessElevated) {
+            _mainElevatedItem = new ToolStripMenuItem(UpdateText("ElevationMainElevated")) {
+                Enabled = false,
+                ToolTipText = UpdateText("ElevationMainElevatedTip")
+            };
+            contextMenu.Items.Add(_mainElevatedItem);
+            // Disabled menu items do not reliably display the built-in item tooltip.
+            contextMenu.MouseMove += OnElevationMouseMove;
+            contextMenu.MouseLeave += (s, e) => HideElevationTip();
+            contextMenu.Closed += (s, e) => HideElevationTip();
+        }
+        else {
+            using var shieldIcon = SystemIcons.GetStockIcon(StockIconId.Shield, StockIconOptions.SmallIcon);
+            _shieldImage = shieldIcon.ToBitmap();
+            _elevationItem = new ToolStripMenuItem();
+            _elevationItem.Click += async (s, e) => {
+                if (_isExiting || _isElevating) return;
+                if (_elevation.IsHelperElevated) _elevation.Downgrade();
+                else await ElevateAsync();
+            };
+            contextMenu.Items.Add(_elevationItem);
+            UpdateElevationItems();
+        }
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(exitItem);
+        contextMenu.Opening += (s, e) => UpdateElevationItems();
 
         _notifyIcon = new NotifyIcon {
             Icon = _icon = GetAppIcon(),
@@ -123,6 +164,59 @@ public sealed class TrayMenu : IDisposable
     }
 
     private static string UpdateText(string key) => Strings.ResourceManager.GetString(key, Strings.Culture) ?? key;
+
+    private void OnElevationStateChanged(object? sender, EventArgs e)
+    {
+        if (_isExiting || _uiDispatcher.IsDisposed) return;
+        try {
+            _uiDispatcher.BeginInvoke((Action)(() => { if (!_isExiting) UpdateElevationItems(); }));
+        }
+        catch (InvalidOperationException) { }
+    }
+
+    private void UpdateElevationItems()
+    {
+        if (_elevationItem == null) return;
+        bool elevated = _elevation.IsHelperElevated;
+        _elevationItem.Text = UpdateText(elevated ? "ElevationUseStandardPrivileges" : "ElevationRunAsAdministrator");
+        _elevationItem.Image = elevated ? null : _shieldImage;
+        _elevationItem.Enabled = !_isElevating;
+    }
+
+    private async Task ElevateAsync()
+    {
+        if (_isExiting || _isElevating) return;
+        _isElevating = true;
+        UpdateElevationItems();
+        try {
+            var result = await _elevation.ElevateAsync(_shutdownCts.Token);
+            if (!_isExiting && result == ElevationResult.Failed) {
+                MessageBox.Show(UpdateText("ElevationFailed"), Strings.Error, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        catch (OperationCanceledException) when (_isExiting) { }
+        finally {
+            _isElevating = false;
+            if (!_isExiting) UpdateElevationItems();
+        }
+    }
+
+    private void OnElevationMouseMove(object? sender, MouseEventArgs e)
+    {
+        if (_contextMenu?.GetItemAt(e.Location) != _mainElevatedItem) {
+            HideElevationTip();
+            return;
+        }
+        if (_showingElevationTip || _contextMenu == null || _mainElevatedItem == null) return;
+        _showingElevationTip = true;
+        _elevationTip.Show(_mainElevatedItem.ToolTipText, _contextMenu, e.X + 12, e.Y + 20);
+    }
+
+    private void HideElevationTip()
+    {
+        if (_contextMenu != null) _elevationTip.Hide(_contextMenu);
+        _showingElevationTip = false;
+    }
 
     private static void LogUpdate(string message) => ConsoleHelper.WriteLog($"[{DateTime.Now:HH:mm:ss}] [Update] {message}");
 
@@ -218,6 +312,7 @@ public sealed class TrayMenu : IDisposable
     {
         if (_isExiting) return;
         _isExiting = true;
+        _elevation.StateChanged -= OnElevationStateChanged;
         Application.Idle -= OnFirstIdle;
         Application.ApplicationExit -= OnApplicationExit;
         _shutdownCts.Cancel();
@@ -226,6 +321,9 @@ public sealed class TrayMenu : IDisposable
             _notifyIcon.Dispose();
         }
         _contextMenu?.Dispose();
+        _uiDispatcher.Dispose();
+        _elevationTip.Dispose();
+        _shieldImage?.Dispose();
         _icon?.Dispose();
         _shutdownCts.Dispose();
     }

@@ -30,6 +30,10 @@ internal static class ShortcutWindowHelper
         int width, int height, uint flags);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(IntPtr window, int index);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr window, StringBuilder text, int capacity);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetPackageFamilyName(IntPtr process, ref uint length, StringBuilder? name);
 
@@ -56,6 +60,25 @@ internal static class ShortcutWindowHelper
                 string.Equals(candidate.MainModule?.FileName, startInfo.FileName,
                     StringComparison.OrdinalIgnoreCase);
         }), previous, token);
+    }
+
+    public static async Task InvokeShellAsync(Action invoke, Func<string, bool> matchesTitle,
+        CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var previous = GetVisibleWindows();
+        token.ThrowIfCancellationRequested();
+        // Invoke synchronously on the caller's STA thread, before the first await.
+        invoke();
+
+        await TryBringToFrontAsync(window => {
+            var className = new StringBuilder(32);
+            if (GetClassName(window, className, className.Capacity) == 0 ||
+                className.ToString() != "#32770") return false;
+            var title = new StringBuilder(512);
+            if (GetWindowText(window, title, title.Capacity) == 0) return false;
+            return matchesTitle(title.ToString());
+        }, previous, token);
     }
 
     public static async Task<bool> LaunchPackageAsync(AppListEntry entry, string family,

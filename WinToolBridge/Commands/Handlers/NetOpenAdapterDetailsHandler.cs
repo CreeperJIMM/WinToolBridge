@@ -1,6 +1,7 @@
 ﻿using System.Net.NetworkInformation;
 using System.Text.Json;
 using System.Runtime.InteropServices;
+using WinToolBridge.Services;
 
 namespace WinToolBridge.Commands.Handlers;
 
@@ -9,7 +10,7 @@ public class NetOpenAdapterDetailsHandler : ICommandHandler
     public string Action => "NET:OPEN_ADAPTER_DETAILS";
     public bool RequiresDeduplication => true;
 
-    public Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
+    public async Task<object?> HandleAsync(JsonElement? parameters, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         if (parameters is not { ValueKind: JsonValueKind.Object } value ||
@@ -30,7 +31,8 @@ public class NetOpenAdapterDetailsHandler : ICommandHandler
             throw new ArgumentException($"找不到指定的本機網路介面: {adapterName}");
         }
 
-        var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNames = realAdapters.Select(a => a.Name).OrderByDescending(n => n.Length).ToArray();
+        var tcs = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var thread = new Thread(() => {
             object? shell = null, folder = null, items = null;
@@ -63,8 +65,10 @@ public class NetOpenAdapterDetailsHandler : ICommandHandler
                         item = ((dynamic)items).Item(index);
                         if (item != null && string.Equals((string)((dynamic)item).Name, matched.Name, StringComparison.OrdinalIgnoreCase)) {
                             token.ThrowIfCancellationRequested();
-                            ((dynamic)item).InvokeVerb();
-                            tcs.TrySetResult(new { opened = matched.Name });
+                            var activation = ShortcutWindowHelper.InvokeShellAsync(
+                                () => ((dynamic)item).InvokeVerb(),
+                                caption => MatchesAdapterWindowTitle(caption, matched.Name, adapterNames), token);
+                            tcs.TrySetResult(activation);
                             return;
                         }
                     }
@@ -89,7 +93,19 @@ public class NetOpenAdapterDetailsHandler : ICommandHandler
         token.ThrowIfCancellationRequested();
         thread.Start();
 
-        return tcs.Task;
+        var activationTask = await tcs.Task;
+        await activationTask;
+        return new { opened = matched.Name };
+    }
+
+    private static bool MatchesAdapterWindowTitle(string caption, string adapterName, string[] adapterNames)
+    {
+        // Prefer the longest adapter name so "Ethernet" cannot match "Ethernet 2 Status".
+        var titleAdapter = adapterNames.FirstOrDefault(name =>
+            string.Equals(caption, name, StringComparison.OrdinalIgnoreCase) ||
+            (caption.StartsWith(name, StringComparison.OrdinalIgnoreCase) &&
+                caption.Length > name.Length && char.IsWhiteSpace(caption[name.Length])));
+        return string.Equals(titleAdapter, adapterName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ReleaseCom(object? value)

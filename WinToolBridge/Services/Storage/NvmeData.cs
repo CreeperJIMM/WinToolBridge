@@ -65,19 +65,19 @@ internal static class NvmeData
         return (health, usage, new("NVMe", attributes.ToArray()));
     }
 
-    internal static byte[] ProtocolPayload(byte[] buffer, int returned, int expectedLength, uint dataType)
+    internal static byte[] ProtocolPayload(byte[] buffer, int returned, int expectedLength, uint dataType, uint protocol = 3)
     {
         // STORAGE_PROTOCOL_DATA_DESCRIPTOR: 8-byte header + 40-byte protocol structure.
         if (returned < 48 || returned > buffer.Length ||
             BinaryPrimitives.ReadUInt32LittleEndian(buffer) != 48 ||
             BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4)) != 48 ||
-            BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(8)) != 3 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(8)) != protocol ||
             BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(12)) != dataType)
-            throw new InvalidDataException("Invalid NVMe protocol descriptor.");
+            throw new InvalidDataException("Invalid storage protocol descriptor.");
         var offset = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(24));
         var length = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(28));
         if (offset < 40 || length < expectedLength || 8UL + offset + length > (ulong)returned)
-            throw new InvalidDataException("Invalid NVMe protocol payload range.");
+            throw new InvalidDataException("Invalid storage protocol payload range.");
         return buffer.AsSpan(checked(8 + (int)offset), expectedLength).ToArray();
     }
 }

@@ -6,7 +6,7 @@ using WinToolBridge.Services.Storage;
 namespace WinToolBridge.Services;
 
 internal sealed record ElevationRequest(long id, string operation, string? diskId);
-internal sealed record ElevationResponse(long id, RealtekSmartResult? result, string? error);
+internal sealed record ElevationResponse(long id, StorageProtocolResult? result, string? error);
 
 internal static class ElevationPipe
 {
@@ -41,7 +41,7 @@ internal static class ElevationPipe
     internal static void Validate(ElevationRequest request)
     {
         if (request.id <= 0) throw new InvalidDataException("Invalid elevation request id.");
-        if (request.operation == "realtekSmart") PhysicalDiskService.ValidateId(request.diskId);
+        if (request.operation is "realtekSmart" or "ataSmart") PhysicalDiskService.ValidateId(request.diskId);
         else if (request.operation != "cancel" || request.diskId != null)
             throw new InvalidDataException("Unsupported elevation operation.");
     }

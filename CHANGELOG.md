@@ -1,3 +1,13 @@
+## [1.3.1]
+
+### What's New in v1.3.1
+
+- **ATA/SATA HDD and SSD Support**:
+  - Added read-only Identify and SMART queries for directly attached ATA/SATA HDDs and SSDs, with disk type, HDD rotation speed, sector sizes, SATA link speeds, and supported capabilities.
+  - Added ATA SMART attributes and health status, with temperature, power-on statistics, and sector error counts where supported. Unrecognized vendor attributes retain raw values without assuming units or remaining lifetime.
+  - Reused the existing administrator request and helper workflow for restricted SMART queries, while retaining basic specifications under standard privileges where available.
+  - Omitted unavailable optional protocol-specific fields from responses. USB-to-SATA and RAID-specific pass-through are not included.
+
 ## [1.3.0]
 
 ### What's New in v1.3.0

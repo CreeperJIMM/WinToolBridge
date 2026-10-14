@@ -28,13 +28,13 @@ public sealed class ElevationService : IDisposable
     private bool _disposed;
     private long _nextQueryId;
     private long _pendingQueryId;
-    private TaskCompletionSource<RealtekSmartResult>? _pendingQuery;
+    private TaskCompletionSource<StorageProtocolResult>? _pendingQuery;
 
     public bool IsMainProcessElevated { get; } = IsElevated();
     public bool IsHelperElevated { get { lock (_gate) return _pipe != null; } }
     public event EventHandler? StateChanged;
 
-    public async Task<RealtekSmartResult> ReadRealtekSmartAsync(string diskId, CancellationToken token = default)
+    public async Task<StorageProtocolResult> ReadRealtekSmartAsync(string diskId, CancellationToken token = default)
     {
         PhysicalDiskService.ValidateId(diskId);
         token.ThrowIfCancellationRequested();
@@ -43,10 +43,20 @@ public sealed class ElevationService : IDisposable
         if (!IsHelperElevated) return RealtekNvmeSmartReader.NeedsElevation();
         // The caller can stop waiting immediately, but the wire remains serialized
         // until the cancelled native query replies or the helper disconnects.
-        return await QueryHelperAsync(diskId, token).WaitAsync(token);
+        return await QueryHelperAsync(diskId, "realtekSmart", token).WaitAsync(token);
     }
 
-    private async Task<RealtekSmartResult> QueryHelperAsync(string diskId, CancellationToken token)
+    public async Task<StorageProtocolResult> ReadAtaSmartAsync(string diskId, CancellationToken token = default)
+    {
+        PhysicalDiskService.ValidateId(diskId);
+        token.ThrowIfCancellationRequested();
+        lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
+        if (IsMainProcessElevated) return await AtaSmartReader.ReadAsync(diskId, token);
+        if (!IsHelperElevated) return AtaSmartReader.NeedsElevation();
+        return await QueryHelperAsync(diskId, "ataSmart", token).WaitAsync(token);
+    }
+
+    private async Task<StorageProtocolResult> QueryHelperAsync(string diskId, string operation, CancellationToken token)
     {
         CancellationTokenSource lifetime;
         lock (_gate) {
@@ -59,23 +69,23 @@ public sealed class ElevationService : IDisposable
             long id = 0;
             try {
                 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                var completion = new TaskCompletionSource<RealtekSmartResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var completion = new TaskCompletionSource<StorageProtocolResult>(TaskCreationOptions.RunContinuationsAsynchronously);
                 lock (_gate) {
                     lifetime.Token.ThrowIfCancellationRequested();
                     pipe = _pipe;
-                    if (pipe == null) return RealtekNvmeSmartReader.NeedsElevation();
+                    if (pipe == null) return operation == "ataSmart" ? AtaSmartReader.NeedsElevation() : RealtekNvmeSmartReader.NeedsElevation();
                     id = ++_nextQueryId;
                     _pendingQueryId = id;
                     _pendingQuery = completion;
                 }
                 // Write the full frame without caller cancellation to avoid leaving a partial frame.
-                await WriteRequestAsync(pipe, new(id, "realtekSmart", diskId), deadline.Token);
+                await WriteRequestAsync(pipe, new(id, operation, diskId), deadline.Token);
                 using var cancel = lifetime.Token.Register(() => { _ = CancelQueryAsync(pipe, id); });
                 return await completion.Task.WaitAsync(deadline.Token);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or TimeoutException or OperationCanceledException) {
                 if (pipe != null) Disconnect(pipe);
-                return RealtekNvmeSmartReader.Failure(new("unavailable", null, "Administrator helper disconnected or did not complete the query."));
+                return StorageProtocolResult.Failure(new("unavailable", null, "Administrator helper disconnected or did not complete the query."));
             }
             finally {
                 lock (_gate) {
@@ -214,7 +224,7 @@ public sealed class ElevationService : IDisposable
                 _pipe = null;
                 _helper?.Dispose();
                 _helper = null;
-                _pendingQuery?.TrySetResult(RealtekNvmeSmartReader.Failure(new("unavailable", null, "Administrator helper disconnected.")));
+                _pendingQuery?.TrySetResult(StorageProtocolResult.Failure(new("unavailable", null, "Administrator helper disconnected.")));
             }
         }
         pipe.Dispose();
@@ -230,7 +240,7 @@ public sealed class ElevationService : IDisposable
                     throw new InvalidDataException("Invalid elevation response.");
                 lock (_gate) {
                     if (ReferenceEquals(_pipe, pipe) && _pendingQueryId == response.id)
-                        _pendingQuery?.TrySetResult(response.result ?? RealtekNvmeSmartReader.Failure(new("error", null, response.error)));
+                        _pendingQuery?.TrySetResult(response.result ?? StorageProtocolResult.Failure(new("error", null, response.error)));
                 }
             }
         }
@@ -274,7 +284,8 @@ public sealed class ElevationService : IDisposable
     }
 
     internal static async Task ServeHelperAsync(Stream pipe,
-        Func<string, CancellationToken, Task<RealtekSmartResult>>? read = null)
+        Func<string, CancellationToken, Task<StorageProtocolResult>>? read = null,
+        Func<string, CancellationToken, Task<StorageProtocolResult>>? readAta = null)
     {
         using var disconnected = new CancellationTokenSource();
         CancellationTokenSource? queryCancellation = null;
@@ -295,7 +306,7 @@ public sealed class ElevationService : IDisposable
                 queryCancellation = CancellationTokenSource.CreateLinkedTokenSource(disconnected.Token);
                 activeId = request.id;
                 query = CompleteHelperQueryAsync(pipe, request, queryCancellation.Token, disconnected.Token,
-                    read ?? RealtekNvmeSmartReader.ReadAsync);
+                    request.operation == "ataSmart" ? readAta ?? AtaSmartReader.ReadAsync : read ?? RealtekNvmeSmartReader.ReadAsync);
             }
         }
         finally {
@@ -310,7 +321,7 @@ public sealed class ElevationService : IDisposable
 
     private static async Task CompleteHelperQueryAsync(Stream pipe, ElevationRequest request,
         CancellationToken queryToken, CancellationToken connectionToken,
-        Func<string, CancellationToken, Task<RealtekSmartResult>> read)
+        Func<string, CancellationToken, Task<StorageProtocolResult>> read)
     {
         ElevationResponse response;
         try {
@@ -320,7 +331,7 @@ public sealed class ElevationService : IDisposable
             response = new(request.id, null, "Disk query was cancelled.");
         }
         catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException or ArgumentException) {
-            response = new(request.id, RealtekNvmeSmartReader.Failure(PhysicalDiskService.Failure(ex)), null);
+            response = new(request.id, StorageProtocolResult.Failure(PhysicalDiskService.Failure(ex)), null);
         }
         try { await ElevationPipe.WriteAsync(pipe, response, connectionToken); }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException) { }

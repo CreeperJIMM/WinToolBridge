@@ -7,10 +7,6 @@ using WinToolBridge.Services.Usb;
 
 namespace WinToolBridge.Services.Storage;
 
-public sealed record RealtekSmartResult(StorageIdentity? identity, StorageCapabilities capabilities,
-    StorageHealth? health, StorageUsage? usage, StorageSmart? smart,
-    StorageAvailability identifyAvailability, StorageAvailability smartAvailability);
-
 /// <summary>Fixed data-in queries for known Realtek RTL9210/9211/9220 USB-NVMe bridges.</summary>
 internal static class RealtekNvmeSmartReader
 {
@@ -46,13 +42,13 @@ internal static class RealtekNvmeSmartReader
             fields.Contains("PID_E101", StringComparer.OrdinalIgnoreCase); // Actions AM8180 (RTL9210)
     }
 
-    internal static RealtekSmartResult NeedsElevation() => Failure(new StorageAvailability("accessDenied", 5,
+    internal static StorageProtocolResult NeedsElevation() => Failure(new StorageAvailability("accessDenied", 5,
         "Administrator privileges are required to query this Realtek USB-NVMe bridge.", requiresElevation: true));
 
-    internal static RealtekSmartResult Failure(StorageAvailability state) =>
+    internal static StorageProtocolResult Failure(StorageAvailability state) =>
         new(null, new(null, null, null), null, null, null, state, state);
 
-    internal static Task<RealtekSmartResult> ReadAsync(string diskId, CancellationToken token)
+    internal static Task<StorageProtocolResult> ReadAsync(string diskId, CancellationToken token)
     {
         PhysicalDiskService.ValidateId(diskId);
         return Task.Run(() => {
@@ -71,8 +67,8 @@ internal static class RealtekNvmeSmartReader
             StorageAvailability identifyState, smartState;
             try {
                 var value = NvmeData.Identify(Query(handle, true, token));
-                identity = new(value.model, value.firmware, value.serial, "USB", null, value.version);
-                capabilities = new(true, value.trim, value.cache);
+                identity = new(value.model, value.firmware, value.serial, "USB", null, value.version, "ssd", "NVMe");
+                capabilities = new(true, value.trim, value.cache, trimSupported: value.trim);
                 identifyState = new("available");
             }
             catch (Exception ex) when (ex is Win32Exception or InvalidDataException) {
@@ -89,7 +85,7 @@ internal static class RealtekNvmeSmartReader
             token.ThrowIfCancellationRequested();
             if (UsbDeviceInventory.Refresh(device.device, token) == null)
                 return Failure(new("unavailable", null, "Disk was removed during the Realtek query."));
-            return new RealtekSmartResult(identity, capabilities, health, usage, smart, identifyState, smartState);
+            return new StorageProtocolResult(identity, capabilities, health, usage, smart, identifyState, smartState);
         }, token);
     }
 

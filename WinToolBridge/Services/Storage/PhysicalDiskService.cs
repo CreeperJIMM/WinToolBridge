@@ -14,7 +14,7 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
     private static readonly Guid DiskClass = new("53F56307-B6BF-11D0-94F2-00A0C91EFB8B");
     private const uint StorageQueryProperty = 0x2D1400;
     private sealed record DiskData(UsbInterface device, StorageIdentity identity, uint? number,
-        uint? bus, Dictionary<string, StorageAvailability> availability);
+        uint? bus, Dictionary<string, StorageAvailability> availability, StorageCapabilities capabilities, StorageConnection connection);
 
     public Task<StorageDisksResult> GetDisksAsync(CancellationToken token) => Task.Run(() => {
         var disks = new List<DiskData>();
@@ -23,15 +23,16 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
             token.ThrowIfCancellationRequested();
             var disk = ReadDisk(device, token);
             if (disk == null) continue;
-            var smart = ReadSmartAvailability(disk.bus, device.path, token);
+            var smart = AtaSmartReader.IsCandidate(disk.bus)
+                ? AtaAvailability(disk.capabilities) : ReadSmartAvailability(disk.bus, device.path, token);
             if (disk.bus == 7 && RealtekNvmeSmartReader.IsCandidate(device, token)) {
                 smart = elevation?.IsMainProcessElevated == true || elevation?.IsHelperElevated == true ||
                     (elevation == null && ElevationService.IsElevated())
                     ? new("unavailable", null, "Realtek NVMe SMART is read when disk details are requested.")
                     : RealtekNvmeSmartReader.NeedsElevation().smartAvailability;
             }
-            // Exclude only an explicit unsupported query result, not unimplemented protocols or access errors.
-            if (smart.status == "notSupported") continue;
+            // Preserve ATA disks, including those with disabled SMART; only retain the existing NVMe query filter.
+            if (disk.bus == 17 && smart.status == "notSupported") continue;
             disk.availability["smart"] = smart;
             disks.Add(disk);
         }
@@ -45,7 +46,7 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
             var iconUrl = images != null && assetBaseUrl != null
                 ? StorageDriveIconProvider.GetUrl(StorageDriveIconProvider.SelectRoot(mounts, windowsMountPoint), images, assetBaseUrl, token) : null;
             return new StorageDisk(Id(disk.device), disk.identity.model, disk.identity.busType, disk.identity.sizeBytes,
-                mounts, disk.availability, iconUrl, StorageVolumeMap.IsSystemDisk(mounts, windowsMountPoint, volumes.availability));
+                mounts, disk.availability, iconUrl, StorageVolumeMap.IsSystemDisk(mounts, windowsMountPoint, volumes.availability), disk.identity.mediaType, disk.identity.protocol);
         }).ToArray(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }, token);
 
@@ -58,7 +59,8 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
             var disk = ReadDisk(device, token) ?? throw new InvalidOperationException("Device is not a physical disk.");
             var availability = disk.availability;
             var identity = disk.identity;
-            var capabilities = new StorageCapabilities(null, null, null);
+            var capabilities = disk.capabilities;
+            var ataConnection = disk.connection;
             StorageHealth? health = null;
             StorageUsage? usage = null;
             StorageSmart? smart = null;
@@ -80,8 +82,8 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
                         try {
                             var data = NvmeData.Identify(Protocol(handle, 1, 1, 4096, token));
                             identity = identity with { model = data.model ?? identity.model, firmware = data.firmware ?? identity.firmware,
-                                serialNumber = data.serial ?? identity.serialNumber, nvmeVersion = data.version };
-                            capabilities = capabilities with { smartSupported = true, volatileWriteCacheSupported = data.cache };
+                                serialNumber = data.serial ?? identity.serialNumber, nvmeVersion = data.version, mediaType = "ssd", protocol = "NVMe" };
+                            capabilities = capabilities with { smartSupported = true, volatileWriteCacheSupported = data.cache, trimSupported = data.trim };
                             availability["identify"] = new("available");
                         }
                         catch (Exception ex) when (IsQueryFailure(ex)) { availability["identify"] = Failure(ex); }
@@ -92,13 +94,38 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
                         }
                         catch (Exception ex) when (IsQueryFailure(ex)) { availability["smart"] = Failure(ex); }
                     }
-                    else {
+                    else if (!AtaSmartReader.IsCandidate(disk.bus)) {
                         availability["identify"] = disk.bus == null
                             ? new("unavailable", null, "The device protocol could not be determined.")
                             : new("notSupported", null,
-                                "This version queries NVMe protocol data only; ATA, USB bridge and RAID pass-through are not implemented.");
+                                "This version queries direct ATA/NVMe and supported Realtek NVMe devices only.");
                         availability["smart"] = ReadSmartAvailability(disk.bus, device.path, token);
                     }
+                }
+            }
+            if (AtaSmartReader.IsCandidate(disk.bus)) {
+                if (capabilities.smartSupported == false || capabilities.smartEnabled == false) {
+                    availability["smart"] = AtaAvailability(capabilities);
+                }
+                else {
+                    var result = elevation != null ? await elevation.ReadAtaSmartAsync(diskId, token)
+                        : ElevationService.IsElevated() ? await AtaSmartReader.ReadAsync(diskId, token)
+                        : AtaSmartReader.NeedsElevation();
+                    if (result.identity is { } identified) {
+                        identity = identity with { model = identified.model ?? identity.model, firmware = identified.firmware ?? identity.firmware,
+                            serialNumber = identified.serialNumber ?? identity.serialNumber,
+                            mediaType = identified.mediaType != "unknown" ? identified.mediaType : identity.mediaType,
+                            rotationRateRpm = identified.rotationRateRpm ?? identity.rotationRateRpm };
+                    }
+                    if (result.connection is { } queriedConnection) ataConnection = ataConnection with {
+                        currentSataSpeedGbps = queriedConnection.currentSataSpeedGbps ?? ataConnection.currentSataSpeedGbps,
+                        maximumSataSpeedGbps = queriedConnection.maximumSataSpeedGbps ?? ataConnection.maximumSataSpeedGbps
+                    };
+                    capabilities = MergeCapabilities(capabilities, result.capabilities);
+                    (health, usage, smart) = (result.health, result.usage, result.smart);
+                    if (!availability.TryGetValue("identify", out var previous) || previous.status != "available")
+                        availability["identify"] = result.identifyAvailability;
+                    availability["smart"] = result.smartAvailability;
                 }
             }
             if (disk.bus == 7 && RealtekNvmeSmartReader.IsCandidate(device, token)) {
@@ -108,18 +135,21 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
                 if (result.identity is { } identified) {
                     identity = identity with { model = identified.model ?? identity.model,
                         firmware = identified.firmware ?? identity.firmware, serialNumber = identified.serialNumber ?? identity.serialNumber,
-                        nvmeVersion = identified.nvmeVersion };
+                        nvmeVersion = identified.nvmeVersion, mediaType = identified.mediaType, protocol = identified.protocol };
                 }
-                capabilities = capabilities with { smartSupported = result.capabilities.smartSupported,
-                    trimEnabled = capabilities.trimEnabled ?? result.capabilities.trimEnabled,
-                    volatileWriteCacheSupported = result.capabilities.volatileWriteCacheSupported };
+                capabilities = MergeCapabilities(capabilities, result.capabilities);
                 (health, usage, smart) = (result.health, result.usage, result.smart);
                 availability["identify"] = result.identifyAvailability;
                 availability["smart"] = result.smartAvailability;
             }
+            if (smart?.protocol == "NVMe") identity = identity with { protocol = "NVMe", mediaType = "ssd" };
             var volumes = StorageVolumeMap.Read(token);
             availability["mountPoints"] = disk.number.HasValue ? volumes.availability : new("unavailable", null, "Disk number is unavailable.");
-            var pcie = StoragePcieProvider.Read(disk.bus, device, token);
+            var pcie = AtaSmartReader.IsCandidate(disk.bus)
+                ? (connection: ataConnection, availability: new StorageAvailability(
+                    ataConnection.currentSataSpeedGbps.HasValue && ataConnection.maximumSataSpeedGbps.HasValue ? "available" :
+                    ataConnection.currentSataSpeedGbps.HasValue || ataConnection.maximumSataSpeedGbps.HasValue ? "partial" : "unavailable"))
+                : StoragePcieProvider.Read(disk.bus, device, token);
             availability["connection"] = pcie.availability;
             StorageUsbConnection? usbConnection = null;
             if (disk.bus == 7) {
@@ -140,7 +170,7 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
                 throw new InvalidOperationException("Disk was removed while its details were being read.");
             token.ThrowIfCancellationRequested();
             return new StorageDiskDetailsResult(new(diskId, identity, Mounts(disk.number, volumes.paths, volumes.availability),
-                pcie.connection with { interfaceName = StorageConnectionProvider.GetInterfaceName(disk.bus, device,
+                pcie.connection with { interfaceName = disk.bus == 11 ? "SATA" : disk.bus == 3 ? "ATA" : StorageConnectionProvider.GetInterfaceName(disk.bus, device,
                     smart?.protocol == "NVMe" || identity.nvmeVersion != null, token), usb = usbConnection },
                 capabilities, health, usage, smart, availability), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 ElevationIconProvider.GetUrl(images, assetBaseUrl, token));
@@ -152,7 +182,7 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
         token.ThrowIfCancellationRequested();
         if (bus == null) return new("unavailable", null, "The device protocol could not be determined.");
         if (bus != 17) return new("unavailable", null,
-            "SMART support is unknown: ATA, USB bridge and RAID pass-through queries are not implemented.");
+            "SMART support is unknown for this USB bridge, RAID or other unimplemented protocol.");
         using var handle = DeviceIoControlQuery.Open(path);
         if (handle.IsInvalid) return Failure(new Win32Exception(Marshal.GetLastWin32Error()));
         try {
@@ -161,6 +191,25 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
         }
         catch (Exception ex) when (IsQueryFailure(ex)) { return Failure(ex); }
     }
+
+    private StorageAvailability AtaAvailability(StorageCapabilities capabilities)
+    {
+        if (capabilities.smartSupported == false || capabilities.smartEnabled == false)
+            return new("notSupported", null, capabilities.smartSupported == false ? "ATA Identify reports no SMART support."
+                : "SMART is disabled; the bridge does not enable it.");
+        var ready = elevation?.IsMainProcessElevated == true || elevation?.IsHelperElevated == true ||
+            (elevation == null && ElevationService.IsElevated());
+        return ready ? new("unavailable", null, "ATA SMART is read when disk details are requested.")
+            : AtaSmartReader.NeedsElevation().smartAvailability;
+    }
+
+    private static StorageCapabilities MergeCapabilities(StorageCapabilities current, StorageCapabilities incoming) => current with {
+        smartSupported = incoming.smartSupported ?? current.smartSupported,
+        trimEnabled = current.trimEnabled ?? incoming.trimEnabled,
+        volatileWriteCacheSupported = incoming.volatileWriteCacheSupported ?? current.volatileWriteCacheSupported,
+        smartEnabled = incoming.smartEnabled ?? current.smartEnabled, trimSupported = incoming.trimSupported ?? current.trimSupported,
+        writeCacheEnabled = incoming.writeCacheEnabled ?? current.writeCacheEnabled
+    };
 
     internal static void ValidateId(string? id)
     {
@@ -191,10 +240,14 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
         string? model = device.device.name, firmware = null, serial = null;
         uint? bus = null, number = null;
         long? size = null;
+        int? logicalSector = null, physicalSector = null;
+        AtaData.Identification? ata = null;
+        var capabilities = new StorageCapabilities(null, null, null);
+        var connection = new StorageConnection(null, null, null, null);
         using var handle = DeviceIoControlQuery.Open(device.path);
         if (handle.IsInvalid) {
             var failure = Failure(new Win32Exception(Marshal.GetLastWin32Error()));
-            states["identity"] = states["size"] = states["diskNumber"] = failure;
+            states["identity"] = states["size"] = states["diskNumber"] = states["sectorSize"] = failure;
         }
         else {
             try {
@@ -224,11 +277,38 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
                 var value = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(24));
                 if (value < 0 || value > 9007199254740991) throw new InvalidDataException("Disk size cannot be represented safely.");
                 size = value;
+                var sector = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(20));
+                if (sector is > 0 and <= int.MaxValue) logicalSector = (int)sector;
                 states["size"] = new("available");
             }
             catch (Exception ex) when (IsQueryFailure(ex)) { states["size"] = Failure(ex); }
         }
-        return new(device, new(model, firmware, serial, BusName(bus), size, null), number, bus, states);
+        if (!handle.IsInvalid) {
+            try {
+                var alignment = Property(handle, 6, token); // StorageAccessAlignmentProperty
+                if (alignment.Length < 28) throw new InvalidDataException("Truncated access alignment descriptor.");
+                var logical = BinaryPrimitives.ReadUInt32LittleEndian(alignment.AsSpan(16));
+                var physical = BinaryPrimitives.ReadUInt32LittleEndian(alignment.AsSpan(20));
+                if (logical is > 0 and <= int.MaxValue) logicalSector = (int)logical;
+                if (physical is > 0 and <= int.MaxValue) physicalSector = (int)physical;
+                states["sectorSize"] = new(logicalSector.HasValue && physicalSector.HasValue ? "available" : "partial");
+            }
+            catch (Exception ex) when (IsQueryFailure(ex)) { states["sectorSize"] = Failure(ex); }
+            if (AtaSmartReader.IsCandidate(bus)) {
+                try {
+                    ata = AtaData.Identify(AtaIdentify(handle, token));
+                    capabilities = ata.capabilities;
+                    connection = connection with { currentSataSpeedGbps = ata.currentSpeed, maximumSataSpeedGbps = ata.maximumSpeed };
+                    states["identify"] = new("available");
+                }
+                catch (Exception ex) when (IsQueryFailure(ex)) { states["identify"] = Failure(ex); }
+            }
+        }
+        var identity = new StorageIdentity(model, firmware, serial, BusName(bus), size, null,
+            bus == 17 ? "ssd" : "unknown", bus == 17 ? "NVMe" : AtaSmartReader.IsCandidate(bus) ? "ATA" : "unknown",
+            logicalSectorSizeBytes: logicalSector, physicalSectorSizeBytes: physicalSector);
+        if (ata != null) identity = AtaData.Apply(identity, ata);
+        return new(device, identity, number, bus, states, capabilities, connection);
     }
 
     private static string? BusName(uint? bus) => bus switch {
@@ -263,6 +343,18 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
         if (result.Length < size || result.Length < 8 || BinaryPrimitives.ReadUInt32LittleEndian(result.AsSpan(4)) != size)
             throw new InvalidDataException("Incomplete storage descriptor.");
         return result.AsSpan(0, (int)size).ToArray();
+    }
+
+    private static byte[] AtaIdentify(SafeFileHandle handle, CancellationToken token)
+    {
+        var buffer = new byte[48 + 512];
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer, 50);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(8), 2); // ProtocolTypeAta
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(12), 1); // AtaDataTypeIdentify
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(24), 40);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(28), 512);
+        var result = Query(handle, StorageQueryProperty, buffer, buffer.Length, token);
+        return NvmeData.ProtocolPayload(result, result.Length, 512, 1, protocol: 2);
     }
 
     private static byte[] Protocol(SafeFileHandle handle, uint dataType, uint request, int length, CancellationToken token)

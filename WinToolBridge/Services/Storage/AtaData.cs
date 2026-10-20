@@ -6,7 +6,8 @@ namespace WinToolBridge.Services.Storage;
 internal static class AtaData
 {
     internal sealed record Identification(string? model, string? firmware, string? serial, string mediaType,
-        int? rotationRateRpm, StorageCapabilities capabilities, double? currentSpeed, double? maximumSpeed);
+        int? rotationRateRpm, StorageCapabilities capabilities, double? currentSpeed, double? maximumSpeed,
+        string? majorVersion, string? minorVersion, int? queueDepth);
 
     internal static Identification Identify(byte[] data)
     {
@@ -24,19 +25,48 @@ internal static class AtaData
             enabledValid ? (Word(data, 85) & 1) != 0 : null,
             Word(data, 169) != 0xFFFF ? (Word(data, 169) & 1) != 0 : null,
             enabledValid ? (Word(data, 85) & 32) != 0 : null);
+        // Support, enabled state and current levels are separate Identify fields.
+        var sataValid = Word(data, 76) is not (0 or 0xFFFF) && (Word(data, 76) & 1) == 0;
+        var sataSupportValid = sataValid && Word(data, 78) != 0xFFFF && (Word(data, 78) & 1) == 0;
+        var sataEnabledValid = sataSupportValid && Word(data, 79) != 0xFFFF && (Word(data, 79) & 1) == 0;
+        bool? Supported(int word, int bit, bool valid) => valid ? (Word(data, word) & (1 << bit)) != 0 : null;
+        bool? Enabled(bool? supported, int word, int bit, bool valid) =>
+            supported == true ? Supported(word, bit, valid) : null;
+        var apm = Supported(83, 3, supportedValid);
+        var aam = Supported(83, 9, supportedValid);
+        var lookAhead = Supported(82, 6, supportedValid);
+        var dipm = Supported(78, 3, sataSupportValid);
+        var devSleep = Supported(78, 8, sataSupportValid);
+        var apmEnabled = Enabled(apm, 86, 3, enabledValid);
+        var aamEnabled = Enabled(aam, 86, 9, enabledValid);
+        capabilities = capabilities with {
+            apmSupported = apm, apmEnabled = apmEnabled,
+            apmLevel = apmEnabled == true && (Word(data, 91) & 255) is >= 1 and <= 254 ? Word(data, 91) & 255 : null,
+            aamSupported = aam, aamEnabled = aamEnabled,
+            aamLevel = aamEnabled == true && (Word(data, 94) & 255) is >= 128 and <= 254 ? Word(data, 94) & 255 : null,
+            ncqSupported = Supported(76, 8, sataValid),
+            gplSupported = Supported(84, 5, (Word(data, 84) & 0xC000) == 0x4000),
+            readLookAheadSupported = lookAhead, readLookAheadEnabled = Enabled(lookAhead, 85, 6, enabledValid),
+            hipmSupported = Supported(76, 9, sataValid),
+            dipmSupported = dipm, dipmEnabled = Enabled(dipm, 79, 3, sataEnabledValid),
+            devSleepSupported = devSleep, devSleepEnabled = Enabled(devSleep, 79, 8, sataEnabledValid)
+        };
         double? maximum = null, current = null;
         if (Word(data, 76) is not (0 or 0xFFFF)) {
             maximum = (Word(data, 76) & 8) != 0 ? 6 : (Word(data, 76) & 4) != 0 ? 3 : (Word(data, 76) & 2) != 0 ? 1.5 : null;
             if (Word(data, 77) != 0xFFFF) current = ((Word(data, 77) >> 1) & 7) switch { 1 => 1.5, 2 => 3, 3 => 6, _ => null };
         }
         return new(Text(data, 27, 20), Text(data, 23, 4), Text(data, 10, 10), media,
-            media == "hdd" ? rpm : null, capabilities, current, maximum);
+            media == "hdd" ? rpm : null, capabilities, current, maximum, MajorVersion(Word(data, 80)),
+            MinorVersion(Word(data, 81)), capabilities.ncqSupported == true && Word(data, 75) != 0xFFFF
+                ? (Word(data, 75) & 31) + 1 : null);
     }
 
     internal static StorageIdentity Apply(StorageIdentity identity, Identification value) => identity with {
         model = value.model ?? identity.model, firmware = value.firmware ?? identity.firmware,
         serialNumber = value.serial ?? identity.serialNumber, protocol = "ATA", mediaType = value.mediaType,
-        rotationRateRpm = value.rotationRateRpm
+        rotationRateRpm = value.rotationRateRpm, ataMajorVersion = value.majorVersion,
+        ataMinorVersion = value.minorVersion, queueDepth = value.queueDepth
     };
 
     internal static bool ValidSmart(byte[] data) => data.Length == 512 &&
@@ -69,7 +99,22 @@ internal static class AtaData
                 5 => "reallocatedSectors", 9 => "powerOnHours", 12 => "powerCycles",
                 192 => "powerOffRetractCount", 193 => "loadUnloadCycles", 194 => "temperature",
                 196 => "reallocationEvents", 197 => "pendingSectors", 198 => "offlineUncorrectableSectors",
-                199 => "interfaceCrcErrors", _ => $"ataAttribute{id:X2}"
+                199 => "interfaceCrcErrors",
+                1 => "readErrorRate",
+                2 => "throughputPerformance",
+                3 => "spinUpTime",
+                4 => "startStopCount",
+                7 => "seekErrorRate",
+                8 => "seekTimePerformance",
+                10 => "spinRetryCount",
+                191 => "gSenseErrorRate",
+                220 => "diskShift",
+                222 => "loadedHours",
+                223 => "loadUnloadRetryCount",
+                224 => "loadFriction",
+                226 => "loadInTime",
+                240 => "headFlyingHours",
+                _ => $"ataAttribute{id:X2}"
             } : $"ataAttribute{id:X2}";
             attributes.Add(new(id.ToString("X2"), key,
                 Convert.ToHexString(data.AsSpan(offset + 5, 6).ToArray().Reverse().ToArray()),
@@ -89,6 +134,29 @@ internal static class AtaData
         var usage = hours != null || cycles != null ? new StorageUsage(hours, cycles, protocol: "ATA") : null;
         return (health, usage, new("ATA", attributes.ToArray()));
     }
+
+    private static string? MajorVersion(ushort value)
+    {
+        if (value is 0 or 0xFFFF) return null;
+        for (var bit = 15; bit >= 1; bit--)
+            if ((value & (1 << bit)) != 0) return bit switch {
+                >= 9 and <= 13 => $"ACS-{bit - 7}", 8 => "ATA8-ACS",
+                >= 4 and <= 7 => $"ATA/ATAPI-{bit}", <= 3 => $"ATA-{bit}", _ => $"0x{value:X4}"
+            };
+        return null;
+    }
+
+    private static string? MinorVersion(ushort value) => value switch {
+        0 or 0xFFFF => null,
+        0x001F => "ACS-3 Revision 3b", 0x006D => "ACS-3 Revision 5", 0x011B => "ACS-3 Revision 4",
+        0x010A => "ACS-3 (ANSI INCITS 522-2014)",
+        0x0031 => "ACS-2 Revision 2", 0x0110 => "ACS-2 Revision 3", 0x0082 => "ACS-2 (ANSI INCITS 482-2012)",
+        0x005E => "ACS-4 Revision 5", 0x009C => "ACS-4 (ANSI INCITS 529-2018)",
+        0x0030 => "ACS-5 Revision 10", 0x0025 => "ACS-6 Revision 7", 0x0070 => "ACS-6 Revision 11",
+        0x0073 => "ACS-6 Revision 2", 0x0028 => "ATA8-ACS Revision 6", 0x0029 => "ATA8-ACS Revision 4",
+        // Preserve unrecognized revision codes instead of inventing a revision number.
+        _ => $"0x{value:X4}"
+    };
 
     private static ushort Word(byte[] data, int index) => BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(index * 2));
     private static string? Text(byte[] data, int first, int count)

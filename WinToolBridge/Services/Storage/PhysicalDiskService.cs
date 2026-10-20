@@ -115,7 +115,10 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
                         identity = identity with { model = identified.model ?? identity.model, firmware = identified.firmware ?? identity.firmware,
                             serialNumber = identified.serialNumber ?? identity.serialNumber,
                             mediaType = identified.mediaType != "unknown" ? identified.mediaType : identity.mediaType,
-                            rotationRateRpm = identified.rotationRateRpm ?? identity.rotationRateRpm };
+                            rotationRateRpm = identified.rotationRateRpm ?? identity.rotationRateRpm,
+                            ataMajorVersion = identified.ataMajorVersion ?? identity.ataMajorVersion,
+                            ataMinorVersion = identified.ataMinorVersion ?? identity.ataMinorVersion,
+                            queueDepth = identified.queueDepth ?? identity.queueDepth };
                     }
                     if (result.connection is { } queriedConnection) ataConnection = ataConnection with {
                         currentSataSpeedGbps = queriedConnection.currentSataSpeedGbps ?? ataConnection.currentSataSpeedGbps,
@@ -208,7 +211,22 @@ public sealed class PhysicalDiskService(ImageAssetService? images = null, string
         trimEnabled = current.trimEnabled ?? incoming.trimEnabled,
         volatileWriteCacheSupported = incoming.volatileWriteCacheSupported ?? current.volatileWriteCacheSupported,
         smartEnabled = incoming.smartEnabled ?? current.smartEnabled, trimSupported = incoming.trimSupported ?? current.trimSupported,
-        writeCacheEnabled = incoming.writeCacheEnabled ?? current.writeCacheEnabled
+        writeCacheEnabled = incoming.writeCacheEnabled ?? current.writeCacheEnabled,
+        apmSupported = incoming.apmSupported ?? current.apmSupported,
+        apmEnabled = incoming.apmEnabled ?? current.apmEnabled,
+        aamSupported = incoming.aamSupported ?? current.aamSupported,
+        aamEnabled = incoming.aamEnabled ?? current.aamEnabled,
+        ncqSupported = incoming.ncqSupported ?? current.ncqSupported,
+        gplSupported = incoming.gplSupported ?? current.gplSupported,
+        readLookAheadSupported = incoming.readLookAheadSupported ?? current.readLookAheadSupported,
+        readLookAheadEnabled = incoming.readLookAheadEnabled ?? current.readLookAheadEnabled,
+        hipmSupported = incoming.hipmSupported ?? current.hipmSupported,
+        dipmSupported = incoming.dipmSupported ?? current.dipmSupported,
+        dipmEnabled = incoming.dipmEnabled ?? current.dipmEnabled,
+        devSleepSupported = incoming.devSleepSupported ?? current.devSleepSupported,
+        devSleepEnabled = incoming.devSleepEnabled ?? current.devSleepEnabled,
+        apmLevel = incoming.apmLevel ?? current.apmLevel,
+        aamLevel = incoming.aamLevel ?? current.aamLevel
     };
 
     internal static void ValidateId(string? id)

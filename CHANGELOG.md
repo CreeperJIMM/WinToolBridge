@@ -1,3 +1,12 @@
+## [1.3.2]
+
+### What's New in v1.3.2
+
+- **ATA Information Updates**:
+  - Added ATA standard versions, NCQ queue depth, and APM/AAM support, enabled states, and current levels.
+  - Added GPL, read look-ahead, and SATA power-management capabilities, including HIPM, DIPM, and DevSleep, with reported enabled states where available.
+  - Expanded ATA SMART attribute names while preserving raw values and existing health calculations.
+
 ## [1.3.1]
 
 ### What's New in v1.3.1

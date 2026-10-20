@@ -86,3 +86,11 @@ Example ATA identity: {"model":"TOSHIBA DT02ACA200","mediaType":"hdd","protocol"
 ATA API references:
 - https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddstor/ne-ntddstor-_storage_protocol_ata_data_type
 - https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddscsi/ni-ntddscsi-ioctl_ata_pass_through
+
+## ATA Identify specifications and features
+
+ATA identity also exposes optional ataMajorVersion, ataMinorVersion and queueDepth. The major version comes from the highest reported Word 80 bit; recognized Word 81 revision codes have a label and other valid codes retain their hexadecimal value. Queue depth is Word 75 plus one, only when NCQ support is reported.
+
+Capabilities add apmSupported/apmEnabled/apmLevel, aamSupported/aamEnabled/aamLevel, ncqSupported, gplSupported, readLookAheadSupported/readLookAheadEnabled, hipmSupported, dipmSupported/dipmEnabled and devSleepSupported/devSleepEnabled. Support/enabled words are validated independently. Disabled, unsupported, reserved and unavailable levels are omitted; false support/state values are preserved. APM levels are 1–254; AAM levels are 128–254. These fields are parsed from existing Identify responses, including administrator helper responses; no new device commands or settings changes are introduced.
+
+The frontend combines confirmed capabilities in a supported-features row and keeps reported enabled states and levels separate. Missing capability values indicate incomplete information, not unsupported features. SATA power flags describe device-reported support/enablement, not the current link power state or host policy; Identify does not provide an HIPM enabled flag. Existing logical/physical sector and query-availability displays remain. All new fields are optional for compatibility with older bridges and omitted for NVMe when inapplicable.
